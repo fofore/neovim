@@ -9,7 +9,11 @@
 #ifndef NEOVIM_GLOBALS_H
 #define NEOVIM_GLOBALS_H
 
+#include <stdbool.h>
+
+#include "ex_eval.h"
 #include "mbyte.h"
+#include "menu.h"
 
 /*
  * definition of global variables
@@ -588,7 +592,6 @@ EXTERN int orig_line_count INIT(= 0);       /* Line count when "gR" started */
 EXTERN int vr_lines_changed INIT(= 0);      /* #Lines changed by "gR" so far */
 
 
-#if defined(HAVE_SETJMP_H)
 /*
  * Stuff for setjmp() and longjmp().
  * Used to protect areas where we could crash.
@@ -601,7 +604,6 @@ EXTERN volatile int lc_signal;  /* caught signal number, 0 when no was signal
 # endif
 /* volatile because it is used in signal handler deathtrap(). */
 EXTERN volatile int lc_active INIT(= FALSE); /* TRUE when lc_jump_env is valid. */
-#endif
 
 /*
  * These flags are set based upon 'fileencoding'.
@@ -645,38 +647,31 @@ EXTERN vimconv_T output_conv;                   /* type of output conversion */
  * The value is set in mb_init();
  */
 /* length of char in bytes, including following composing chars */
-EXTERN int (*mb_ptr2len)__ARGS((char_u *p)) INIT(= latin_ptr2len);
+EXTERN int (*mb_ptr2len)(char_u *p) INIT(= latin_ptr2len);
 /* idem, with limit on string length */
-EXTERN int (*mb_ptr2len_len)__ARGS((char_u *p, int size)) INIT(
-      = latin_ptr2len_len);
+EXTERN int (*mb_ptr2len_len)(char_u *p, int size) INIT(= latin_ptr2len_len);
 /* byte length of char */
-EXTERN int (*mb_char2len)__ARGS((int c)) INIT(= latin_char2len);
+EXTERN int (*mb_char2len)(int c) INIT(= latin_char2len);
 /* convert char to bytes, return the length */
-EXTERN int (*mb_char2bytes)__ARGS((int c, char_u *buf)) INIT(= latin_char2bytes);
-EXTERN int (*mb_ptr2cells)__ARGS((char_u *p)) INIT(= latin_ptr2cells);
-EXTERN int (*mb_ptr2cells_len)__ARGS((char_u *p, int size)) INIT(
+EXTERN int (*mb_char2bytes)(int c, char_u *buf) INIT(= latin_char2bytes);
+EXTERN int (*mb_ptr2cells)(char_u *p) INIT(= latin_ptr2cells);
+EXTERN int (*mb_ptr2cells_len)(char_u *p, int size) INIT(
       = latin_ptr2cells_len);
-EXTERN int (*mb_char2cells)__ARGS((int c)) INIT(= latin_char2cells);
-EXTERN int (*mb_off2cells)__ARGS((unsigned off, unsigned max_off)) INIT(
+EXTERN int (*mb_char2cells)(int c) INIT(= latin_char2cells);
+EXTERN int (*mb_off2cells)(unsigned off, unsigned max_off) INIT(
       = latin_off2cells);
-EXTERN int (*mb_ptr2char)__ARGS((char_u *p)) INIT(= latin_ptr2char);
-EXTERN int (*mb_head_off)__ARGS((char_u *base, char_u *p)) INIT(
-      = latin_head_off);
+EXTERN int (*mb_ptr2char)(char_u *p) INIT(= latin_ptr2char);
+EXTERN int (*mb_head_off)(char_u *base, char_u *p) INIT(= latin_head_off);
 
 # if defined(USE_ICONV) && defined(DYNAMIC_ICONV)
 /* Pointers to functions and variables to be loaded at runtime */
 EXTERN size_t (*iconv)(iconv_t cd, const char **inbuf, size_t *inbytesleft,
-    char **outbuf, size_t *outbytesleft);
+                       char **outbuf, size_t *outbytesleft);
 EXTERN iconv_t (*iconv_open)(const char *tocode, const char *fromcode);
 EXTERN int (*iconv_close)(iconv_t cd);
 EXTERN int (*iconvctl)(iconv_t cd, int request, void *argument);
 EXTERN int* (*iconv_errno)(void);
 # endif
-
-
-
-EXTERN int composing_hangul INIT(= 0);
-EXTERN char_u composing_hangul_buffer[5];
 
 /*
  * "State" is the main state of Vim.
@@ -758,11 +753,6 @@ EXTERN int RedrawingDisabled INIT(= 0);
 EXTERN int readonlymode INIT(= FALSE);      /* Set to TRUE for "view" */
 EXTERN int recoverymode INIT(= FALSE);      /* Set to TRUE for "-r" option */
 
-EXTERN struct buffheader stuffbuff      /* stuff buffer */
-#ifdef DO_INIT
-  = {{NULL, {NUL}}, NULL, 0, 0}
-#endif
-;
 EXTERN typebuf_T typebuf                /* typeahead buffer */
 #ifdef DO_INIT
   = {NULL, NULL, 0, 0, 0, 0, 0, 0, 0}
@@ -944,63 +934,6 @@ EXTERN int stl_syntax INIT(= 0);
 /* don't use 'hlsearch' temporarily */
 EXTERN int no_hlsearch INIT(= FALSE);
 
-
-#ifdef CURSOR_SHAPE
-/* the table is in misc2.c, because of initializations */
-extern cursorentry_T shape_table[SHAPE_IDX_COUNT];
-#endif
-
-/*
- * Printer stuff shared between hardcopy.c and machine-specific printing code.
- */
-# define OPT_PRINT_TOP          0
-# define OPT_PRINT_BOT          1
-# define OPT_PRINT_LEFT         2
-# define OPT_PRINT_RIGHT        3
-# define OPT_PRINT_HEADERHEIGHT 4
-# define OPT_PRINT_SYNTAX       5
-# define OPT_PRINT_NUMBER       6
-# define OPT_PRINT_WRAP         7
-# define OPT_PRINT_DUPLEX       8
-# define OPT_PRINT_PORTRAIT     9
-# define OPT_PRINT_PAPER        10
-# define OPT_PRINT_COLLATE      11
-# define OPT_PRINT_JOBSPLIT     12
-# define OPT_PRINT_FORMFEED     13
-
-# define OPT_PRINT_NUM_OPTIONS  14
-
-EXTERN option_table_T printer_opts[OPT_PRINT_NUM_OPTIONS]
-# ifdef DO_INIT
-  =
-  {
-  {"top",     TRUE, 0, NULL, 0, FALSE},
-  {"bottom",  TRUE, 0, NULL, 0, FALSE},
-  {"left",    TRUE, 0, NULL, 0, FALSE},
-  {"right",   TRUE, 0, NULL, 0, FALSE},
-  {"header",  TRUE, 0, NULL, 0, FALSE},
-  {"syntax",  FALSE, 0, NULL, 0, FALSE},
-  {"number",  FALSE, 0, NULL, 0, FALSE},
-  {"wrap",    FALSE, 0, NULL, 0, FALSE},
-  {"duplex",  FALSE, 0, NULL, 0, FALSE},
-  {"portrait", FALSE, 0, NULL, 0, FALSE},
-  {"paper",   FALSE, 0, NULL, 0, FALSE},
-  {"collate", FALSE, 0, NULL, 0, FALSE},
-  {"jobsplit", FALSE, 0, NULL, 0, FALSE},
-  {"formfeed", FALSE, 0, NULL, 0, FALSE},
-  }
-
-# endif
-;
-
-/* For prt_get_unit(). */
-# define PRT_UNIT_NONE  -1
-# define PRT_UNIT_PERC  0
-# define PRT_UNIT_INCH  1
-# define PRT_UNIT_MM    2
-# define PRT_UNIT_POINT 3
-# define PRT_UNIT_NAMES {"pc", "in", "mm", "pt"}
-
 /* Page number used for %N in 'pageheader' and 'guitablabel'. */
 EXTERN linenr_T printer_page_num;
 
@@ -1141,6 +1074,7 @@ EXTERN char_u e_screenmode[] INIT(= N_(
 #endif
 EXTERN char_u e_scroll[] INIT(= N_("E49: Invalid scroll size"));
 EXTERN char_u e_shellempty[] INIT(= N_("E91: 'shell' option is empty"));
+EXTERN char_u e_signdata[] INIT(= N_("E255: Couldn't read in sign data!"));
 EXTERN char_u e_swapclose[] INIT(= N_("E72: Close error on swap file"));
 EXTERN char_u e_tagstack[] INIT(= N_("E73: tag stack empty"));
 EXTERN char_u e_toocompl[] INIT(= N_("E74: Command too complex"));
@@ -1193,14 +1127,10 @@ EXTERN FILE *time_fd INIT(= NULL);  /* where to write startup timing */
 EXTERN int ignored;
 EXTERN char *ignoredp;
 
-/*
- * Optional Farsi support.  Include it here, so EXTERN and INIT are defined.
- */
-# include "farsi.h"
-
-/*
- * Optional Arabic support. Include it here, so EXTERN and INIT are defined.
- */
-# include "arabic.h"
+/* Temporarily moved these static variables to assist in migrating from
+ * os_unix.c */
+EXTERN int curr_tmode INIT(= TMODE_COOK); /* contains current terminal mode */
+/* volatile because it is used in signal handler deathtrap(). */
+EXTERN volatile bool in_os_delay INIT(= false);  /* sleeping in os_delay() */
 
 #endif /* NEOVIM_GLOBALS_H */

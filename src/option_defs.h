@@ -1,10 +1,5 @@
-/* vi:set ts=8 sts=4 sw=4:
- *
- * VIM - Vi IMproved	by Bram Moolenaar
- *
- * Do ":help uganda"  in Vim to read copying and usage conditions.
- * Do ":help credits" in Vim to see a list of people who contributed.
- */
+#ifndef NEOVIM_OPTION_DEFS_H
+#define NEOVIM_OPTION_DEFS_H
 
 #include "types.h"
 
@@ -397,9 +392,7 @@ EXTERN char_u   *p_pfn;         /* 'printfont' */
 EXTERN char_u   *p_popt;        /* 'printoptions' */
 EXTERN char_u   *p_header;      /* 'printheader' */
 EXTERN int p_prompt;            /* 'prompt' */
-#ifdef CURSOR_SHAPE
 EXTERN char_u   *p_guicursor;   /* 'guicursor' */
-#endif
 EXTERN char_u   *p_hf;          /* 'helpfile' */
 EXTERN long p_hh;               /* 'helpheight' */
 EXTERN char_u   *p_hlg;         /* 'helplang' */
@@ -768,3 +761,5 @@ enum {
 
 /* Value for b_p_ul indicating the global value must be used. */
 #define NO_LOCAL_UNDOLEVEL -123456
+
+#endif // NEOVIM_OPTION_DEFS_H

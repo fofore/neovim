@@ -11,6 +11,8 @@
  * mark.c: functions for setting marks and jumping to them
  */
 
+#include <string.h>
+
 #include "vim.h"
 #include "mark.h"
 #include "buffer.h"
@@ -22,10 +24,13 @@
 #include "fold.h"
 #include "mbyte.h"
 #include "memline.h"
+#include "memory.h"
 #include "message.h"
 #include "misc1.h"
 #include "misc2.h"
+#include "normal.h"
 #include "option.h"
+#include "path.h"
 #include "quickfix.h"
 #include "search.h"
 #include "term.h"
@@ -46,12 +51,12 @@
 #define EXTRA_MARKS 10                                  /* marks 0-9 */
 static xfmark_T namedfm[NMARKS + EXTRA_MARKS];          /* marks with file nr */
 
-static void fname2fnum __ARGS((xfmark_T *fm));
-static void fmarks_check_one __ARGS((xfmark_T *fm, char_u *name, buf_T *buf));
-static char_u *mark_line __ARGS((pos_T *mp, int lead_len));
-static void show_one_mark __ARGS((int, char_u *, pos_T *, char_u *, int current));
-static void cleanup_jumplist __ARGS((void));
-static void write_one_filemark __ARGS((FILE *fp, xfmark_T *fm, int c1, int c2));
+static void fname2fnum(xfmark_T *fm);
+static void fmarks_check_one(xfmark_T *fm, char_u *name, buf_T *buf);
+static char_u *mark_line(pos_T *mp, int lead_len);
+static void show_one_mark(int, char_u *, pos_T *, char_u *, int current);
+static void cleanup_jumplist(void);
+static void write_one_filemark(FILE *fp, xfmark_T *fm, int c1, int c2);
 
 /*
  * Set named mark "c" at current cursor position.
@@ -135,7 +140,8 @@ int setmark_pos(int c, pos_T *pos, int fnum)
  * Set the previous context mark to the current position and add it to the
  * jump list.
  */
-void setpcmark(void)          {
+void setpcmark(void)
+{
   int i;
   xfmark_T    *fm;
 #ifdef JUMPLIST_ROTATE
@@ -187,7 +193,8 @@ void setpcmark(void)          {
  * context will only be changed if the cursor moved to a different line.
  * If pcmark was deleted (with "dG") the previous mark is restored.
  */
-void checkpcmark(void)          {
+void checkpcmark(void)
+{
   if (curwin->w_prev_pcmark.lnum != 0
       && (equalpos(curwin->w_pcmark, curwin->w_cursor)
           || curwin->w_pcmark.lnum == 0)) {
@@ -264,7 +271,7 @@ pos_T *movechangelist(int count)
     if (n == 0)
       return (pos_T *)NULL;
     n = 0;
-  } else if (n + count >= curbuf->b_changelistlen)   {
+  } else if (n + count >= curbuf->b_changelistlen) {
     if (n == curbuf->b_changelistlen - 1)
       return (pos_T *)NULL;
     n = curbuf->b_changelistlen - 1;
@@ -309,7 +316,7 @@ pos_T *getmark_buf_fnum(buf_T *buf, int c, int changefile, int *fnum)
     return posp;
   if (c > '~')                          /* check for islower()/isupper() */
     ;
-  else if (c == '\'' || c == '`')  {    /* previous context mark */
+  else if (c == '\'' || c == '`') {    /* previous context mark */
     pos_copy = curwin->w_pcmark;        /* need to make a copy because */
     posp = &pos_copy;                   /*   w_pcmark may be changed soon */
   } else if (c == '"')                  /* to pos when leaving buffer */
@@ -336,7 +343,7 @@ pos_T *getmark_buf_fnum(buf_T *buf, int c, int changefile, int *fnum)
     }
     curwin->w_cursor = pos;
     listcmd_busy = slcb;
-  } else if (c == '(' || c == ')')   {  /* to previous/next sentence */
+  } else if (c == '(' || c == ')') {  /* to previous/next sentence */
     pos_T pos;
     int slcb = listcmd_busy;
 
@@ -348,7 +355,7 @@ pos_T *getmark_buf_fnum(buf_T *buf, int c, int changefile, int *fnum)
     }
     curwin->w_cursor = pos;
     listcmd_busy = slcb;
-  } else if (c == '<' || c == '>')   {  /* start/end of visual area */
+  } else if (c == '<' || c == '>') {  /* start/end of visual area */
     startp = &buf->b_visual.vi_start;
     endp = &buf->b_visual.vi_end;
     if ((c == '<') == lt(*startp, *endp))
@@ -367,9 +374,9 @@ pos_T *getmark_buf_fnum(buf_T *buf, int c, int changefile, int *fnum)
         pos_copy.col = MAXCOL;
       pos_copy.coladd = 0;
     }
-  } else if (ASCII_ISLOWER(c))   {      /* normal named mark */
+  } else if (ASCII_ISLOWER(c)) {      /* normal named mark */
     posp = &(buf->b_namedm[c - 'a']);
-  } else if (ASCII_ISUPPER(c) || VIM_ISDIGIT(c))   {    /* named file mark */
+  } else if (ASCII_ISUPPER(c) || VIM_ISDIGIT(c)) {    /* named file mark */
     if (VIM_ISDIGIT(c))
       c = c - '0' + NMARKS;
     else
@@ -436,7 +443,7 @@ getnextmark (
         if ((result == NULL || lt(curbuf->b_namedm[i], *result))
             && lt(pos, curbuf->b_namedm[i]))
           result = &curbuf->b_namedm[i];
-      } else   {
+      } else {
         if ((result == NULL || lt(*result, curbuf->b_namedm[i]))
             && lt(curbuf->b_namedm[i], pos))
           result = &curbuf->b_namedm[i];
@@ -475,7 +482,7 @@ static void fname2fnum(xfmark_T *fm)
       vim_strncpy(NameBuff, fm->fname, MAXPATHL - 1);
 
     /* Try to shorten the file name. */
-    mch_dirname(IObuff, IOSIZE);
+    os_dirname(IObuff, IOSIZE);
     p = shorten_fname(NameBuff, IObuff);
 
     /* buflist_new() will call fmarks_check_names() */
@@ -936,8 +943,9 @@ void mark_adjust(linenr_T line1, linenr_T line2, long amount, long amount_after)
     qf_mark_adjust(NULL, line1, line2, amount, amount_after);
     /* location lists */
     FOR_ALL_TAB_WINDOWS(tab, win)
-    qf_mark_adjust(win, line1, line2, amount, amount_after);
+        qf_mark_adjust(win, line1, line2, amount, amount_after);
 
+    sign_mark_adjust(line1, line2, amount, amount_after);
   }
 
   /* previous context mark */
@@ -987,7 +995,7 @@ void mark_adjust(linenr_T line1, linenr_T line2, long amount, long amount_after)
           } else                        /* keep topline on the same line */
             win->w_topline += amount;
           win->w_topfill = 0;
-        } else if (amount_after && win->w_topline > line2)   {
+        } else if (amount_after && win->w_topline > line2) {
           win->w_topline += amount_after;
           win->w_topfill = 0;
         }
@@ -1103,7 +1111,8 @@ void mark_col_adjust(linenr_T lnum, colnr_T mincol, long lnum_amount, long col_a
  * When deleting lines, this may create duplicate marks in the
  * jumplist. They will be removed here for the current window.
  */
-static void cleanup_jumplist(void)                 {
+static void cleanup_jumplist(void)
+{
   int i;
   int from, to;
 
@@ -1162,7 +1171,8 @@ void set_last_cursor(win_T *win)
 }
 
 #if defined(EXITFREE) || defined(PROTO)
-void free_all_marks(void)          {
+void free_all_marks(void)
+{
   int i;
 
   for (i = 0; i < NMARKS + EXTRA_MARKS; i++)
@@ -1321,7 +1331,7 @@ int removable(char_u *name)
   return retval;
 }
 
-static void write_one_mark __ARGS((FILE *fp_out, int c, pos_T *pos));
+static void write_one_mark(FILE *fp_out, int c, pos_T *pos);
 
 /*
  * Write all the named marks for all buffers.
@@ -1459,7 +1469,7 @@ void copy_viminfo_marks(vir_T *virp, FILE *fp_out, int count, int eof, int flags
         if (fnamecmp(str, name_buf) == 0)
           load_marks = TRUE;
       }
-    } else   { /* fp_out != NULL */
+    } else { /* fp_out != NULL */
              /* This is slow if there are many buffers!! */
       for (buf = firstbuf; buf != NULL; buf = buf->b_next)
         if (buf->b_ffname != NULL) {
@@ -1497,7 +1507,7 @@ void copy_viminfo_marks(vir_T *virp, FILE *fp_out, int count, int eof, int flags
              * first */
             if (curbuf->b_changelistlen == JUMPLISTSIZE)
               /* list is full, remove oldest entry */
-              mch_memmove(curbuf->b_changelist,
+              memmove(curbuf->b_changelist,
                   curbuf->b_changelist + 1,
                   sizeof(pos_T) * (JUMPLISTSIZE - 1));
             else

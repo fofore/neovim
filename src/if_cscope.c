@@ -17,7 +17,9 @@
 #include "message.h"
 #include "misc1.h"
 #include "misc2.h"
-#include "os_unix.h"
+#include "memory.h"
+#include "os/time.h"
+#include "path.h"
 #include "quickfix.h"
 #include "tag.h"
 #include "ui.h"
@@ -30,45 +32,45 @@
 #endif
 #include "if_cscope_defs.h"
 
-static void cs_usage_msg __ARGS((csid_e x));
-static int cs_add __ARGS((exarg_T *eap));
-static void cs_stat_emsg __ARGS((char *fname));
-static int cs_add_common __ARGS((char *, char *, char *));
-static int cs_check_for_connections __ARGS((void));
-static int cs_check_for_tags __ARGS((void));
-static int cs_cnt_connections __ARGS((void));
-static void cs_reading_emsg __ARGS((int idx));
-static int cs_cnt_matches __ARGS((int idx));
-static char *       cs_create_cmd __ARGS((char *csoption, char *pattern));
-static int cs_create_connection __ARGS((int i));
-static void do_cscope_general __ARGS((exarg_T *eap, int make_split));
-static void cs_file_results __ARGS((FILE *, int *));
-static void cs_fill_results __ARGS((char *, int, int *, char ***,
-                                    char ***, int *));
-static int cs_find __ARGS((exarg_T *eap));
-static int cs_find_common __ARGS((char *opt, char *pat, int, int, int,
-                                  char_u *cmdline));
-static int cs_help __ARGS((exarg_T *eap));
-static void clear_csinfo __ARGS((int i));
-static int cs_insert_filelist __ARGS((char *, char *, char *,
-                                      struct stat *));
-static int cs_kill __ARGS((exarg_T *eap));
-static void cs_kill_execute __ARGS((int, char *));
-static cscmd_T *    cs_lookup_cmd __ARGS((exarg_T *eap));
-static char *       cs_make_vim_style_matches __ARGS((char *, char *,
-                                                      char *, char *));
-static char *       cs_manage_matches __ARGS((char **, char **, int, mcmd_e));
-static char *       cs_parse_results __ARGS((int cnumber, char *buf,
-                                             int bufsize, char **context,
-                                             char **linenumber,
-                                             char **search));
-static char *       cs_pathcomponents __ARGS((char *path));
-static void cs_print_tags_priv __ARGS((char **, char **, int));
-static int cs_read_prompt __ARGS((int));
-static void cs_release_csp __ARGS((int, int freefnpp));
-static int cs_reset __ARGS((exarg_T *eap));
-static char *       cs_resolve_file __ARGS((int, char *));
-static int cs_show __ARGS((exarg_T *eap));
+static void cs_usage_msg(csid_e x);
+static int cs_add(exarg_T *eap);
+static void cs_stat_emsg(char *fname);
+static int cs_add_common(char *, char *, char *);
+static int cs_check_for_connections(void);
+static int cs_check_for_tags(void);
+static int cs_cnt_connections(void);
+static void cs_reading_emsg(int idx);
+static int cs_cnt_matches(int idx);
+static char *       cs_create_cmd(char *csoption, char *pattern);
+static int cs_create_connection(int i);
+static void do_cscope_general(exarg_T *eap, int make_split);
+static void cs_file_results(FILE *, int *);
+static void cs_fill_results(char *, int, int *, char ***,
+                                    char ***, int *);
+static int cs_find(exarg_T *eap);
+static int cs_find_common(char *opt, char *pat, int, int, int,
+                                  char_u *cmdline);
+static int cs_help(exarg_T *eap);
+static void clear_csinfo(int i);
+static int cs_insert_filelist(char *, char *, char *,
+                                      struct stat *);
+static int cs_kill(exarg_T *eap);
+static void cs_kill_execute(int, char *);
+static cscmd_T *    cs_lookup_cmd(exarg_T *eap);
+static char *       cs_make_vim_style_matches(char *, char *,
+                                              char *, char *);
+static char *       cs_manage_matches(char **, char **, int, mcmd_e);
+static char *       cs_parse_results(int cnumber, char *buf,
+                                     int bufsize, char **context,
+                                     char **linenumber,
+                                     char **search);
+static char *       cs_pathcomponents(char *path);
+static void cs_print_tags_priv(char **, char **, int);
+static int cs_read_prompt(int);
+static void cs_release_csp(int, int freefnpp);
+static int cs_reset(exarg_T *eap);
+static char *       cs_resolve_file(int, char *);
+static int cs_show(exarg_T *eap);
 
 
 static csinfo_T *   csinfo = NULL;
@@ -278,7 +280,7 @@ void do_cstag(exarg_T *eap)
         if (cs_check_for_tags())
           ret = do_tag(eap->arg, DT_JUMP, 0, eap->forceit, FALSE);
       }
-    } else if (cs_check_for_tags())   {
+    } else if (cs_check_for_tags()) {
       ret = do_tag(eap->arg, DT_JUMP, 0, eap->forceit, FALSE);
     }
     break;
@@ -296,7 +298,7 @@ void do_cstag(exarg_T *eap)
             cs_free_tags();
         }
       }
-    } else if (cs_check_for_connections())   {
+    } else if (cs_check_for_connections()) {
       ret = cs_find_common("g", (char *)(eap->arg), eap->forceit, FALSE,
           FALSE, *eap->cmdlinep);
       if (ret == FALSE)
@@ -340,7 +342,8 @@ int cs_fgets(char_u *buf, int size)
  *
  * called only from do_tag(), when popping the tag stack
  */
-void cs_free_tags(void)          {
+void cs_free_tags(void)
+{
   cs_manage_matches(NULL, NULL, -1, Free);
 }
 
@@ -349,7 +352,8 @@ void cs_free_tags(void)          {
  *
  * called from do_tag()
  */
-void cs_print_tags(void)          {
+void cs_print_tags(void)
+{
   cs_manage_matches(NULL, NULL, -1, Print);
 }
 
@@ -558,7 +562,7 @@ staterr:
 #endif
   {
     i = cs_insert_filelist(fname, ppath, flags, &statbuf);
-  } else   {
+  } else {
     if (p_csverbose)
       (void)EMSG2(
           _("E564: %s is not a directory or a valid cscope database"),
@@ -594,11 +598,13 @@ add_err:
 } /* cs_add_common */
 
 
-static int cs_check_for_connections(void)                {
+static int cs_check_for_connections(void)
+{
   return cs_cnt_connections() > 0;
 } /* cs_check_for_connections */
 
-static int cs_check_for_tags(void)                {
+static int cs_check_for_tags(void)
+{
   return p_tags[0] != NUL && curbuf->b_p_tags != NULL;
 } /* cs_check_for_tags */
 
@@ -607,7 +613,8 @@ static int cs_check_for_tags(void)                {
  *
  * count the number of cscope connections
  */
-static int cs_cnt_connections(void)                {
+static int cs_cnt_connections(void)
+{
   short i;
   short cnt = 0;
 
@@ -1158,7 +1165,7 @@ static int cs_find_common(char *opt, char *pat, int forceit, int verbose, int us
     vim_free(tmp);
     vim_free(nummatches);
     return TRUE;
-  } else   {
+  } else {
     char **matches = NULL, **contexts = NULL;
     int matched = 0;
 
@@ -1235,9 +1242,10 @@ static void clear_csinfo(int i)
 }
 
 #ifndef UNIX
-static char *GetWin32Error __ARGS((void));
+static char *GetWin32Error(void);
 
-static char *GetWin32Error(void)                   {
+static char *GetWin32Error(void)
+{
   char *msg = NULL;
   FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER|FORMAT_MESSAGE_FROM_SYSTEM,
       NULL, GetLastError(), 0, (LPSTR)&msg, 0, NULL);
@@ -1296,7 +1304,7 @@ static int cs_insert_filelist(char *fname, char *ppath, char *flags, struct stat
         && csinfo[j].st_dev == sb->st_dev && csinfo[j].st_ino == sb->st_ino
 #else
         /* compare pathnames first */
-        && ((fullpathcmp(csinfo[j].fname, fname, FALSE) & FPC_SAME)
+        && ((path_full_compare(csinfo[j].fname, fname, FALSE) & kEqualFiles)
             /* if not Windows 9x, test index file attributes too */
             || (!mch_windows95()
                 && csinfo[j].nVolume == bhfi.dwVolumeSerialNumber
@@ -1321,10 +1329,10 @@ static int cs_insert_filelist(char *fname, char *ppath, char *flags, struct stat
        * reallocated. */
       csinfo_size = 1;
       csinfo = (csinfo_T *)alloc_clear(sizeof(csinfo_T));
-    } else   {
+    } else {
       /* Reallocate space for more connections. */
       csinfo_size *= 2;
-      csinfo = vim_realloc(csinfo, sizeof(csinfo_T)*csinfo_size);
+      csinfo = xrealloc(csinfo, sizeof(csinfo_T)*csinfo_size);
     }
     if (csinfo == NULL)
       return -1;
@@ -1437,7 +1445,7 @@ static int cs_kill(exarg_T *eap)
   if ((i != -1) && (i >= csinfo_size || i < -1 || csinfo[i].fname == NULL)) {
     if (p_csverbose)
       (void)EMSG2(_("E261: cscope connection %s not found"), stok);
-  } else   {
+  } else {
     if (i == -1) {
       for (i = 0; i < csinfo_size; i++) {
         if (csinfo[i].fname)
@@ -1514,7 +1522,7 @@ static char *cs_make_vim_style_matches(char *fname, char *slno, char *search, ch
       return NULL;
 
     (void)sprintf(buf, "%s\t%s\t%s;\"\t%s", tagstr, fname, slno, search);
-  } else   {
+  } else {
     amt = (int)(strlen(fname) + strlen(slno) + strlen(tagstr) + 5);
     if ((buf = (char *)alloc(amt)) == NULL)
       return NULL;
@@ -1864,7 +1872,7 @@ static void cs_print_tags_priv(char **matches, char **cntxts, int num_matches)
     /* hopefully 'num' (num of matches) will be less than 10^16 */
     newsize = (int)(strlen(csfmt_str) + 16 + strlen(lno));
     if (bufsize < newsize) {
-      buf = (char *)vim_realloc(buf, newsize);
+      buf = (char *)xrealloc(buf, newsize);
       if (buf == NULL)
         bufsize = 0;
       else
@@ -1885,7 +1893,7 @@ static void cs_print_tags_priv(char **matches, char **cntxts, int num_matches)
     newsize = (int)(strlen(context) + strlen(cntxformat));
 
     if (bufsize < newsize) {
-      buf = (char *)vim_realloc(buf, newsize);
+      buf = (char *)xrealloc(buf, newsize);
       if (buf == NULL)
         bufsize = 0;
       else
@@ -2067,7 +2075,7 @@ static void cs_release_csp(int i, int freefnpp)
       waitpid_errno = errno;
       if (pid != 0)
         break;          /* break unless the process is still running */
-      mch_delay(50L, FALSE);       /* sleep 50 ms */
+      os_delay(50L, FALSE);       /* sleep 50 ms */
     }
 # endif
     /*
@@ -2098,7 +2106,7 @@ static void cs_release_csp(int i, int freefnpp)
             alive = FALSE;             /* cscope process no longer exists */
             break;
           }
-          mch_delay(50L, FALSE);           /* sleep 50ms */
+          os_delay(50L, FALSE);           /* sleep 50ms */
         }
       }
       if (alive)
@@ -2224,7 +2232,7 @@ static char *cs_resolve_file(int i, char *name)
     csdir = alloc(MAXPATHL);
     if (csdir != NULL) {
       vim_strncpy(csdir, (char_u *)csinfo[i].fname,
-          gettail((char_u *)csinfo[i].fname)
+          path_tail((char_u *)csinfo[i].fname)
           - (char_u *)csinfo[i].fname);
       len += (int)STRLEN(csdir);
     }
@@ -2239,11 +2247,11 @@ static char *cs_resolve_file(int i, char *name)
       ) {
     if ((fullname = (char *)alloc(len)) != NULL)
       (void)sprintf(fullname, "%s/%s", csinfo[i].ppath, name);
-  } else if (csdir != NULL && csinfo[i].fname != NULL && *csdir != NUL)   {
+  } else if (csdir != NULL && csinfo[i].fname != NULL && *csdir != NUL) {
     /* Check for csdir to be non empty to avoid empty path concatenated to
      * cscope output. */
     fullname = (char *)concat_fnames(csdir, (char_u *)name, TRUE);
-  } else   {
+  } else {
     fullname = (char *)vim_strsave((char_u *)name);
   }
 
@@ -2289,7 +2297,8 @@ static int cs_show(exarg_T *eap)
  *
  * Only called when VIM exits to quit any cscope sessions.
  */
-void cs_end(void)          {
+void cs_end(void)
+{
   int i;
 
   for (i = 0; i < csinfo_size; i++)

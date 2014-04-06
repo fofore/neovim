@@ -6,6 +6,8 @@
  * Do ":help credits" in Vim to see a list of people who contributed.
  */
 
+#include "normal.h"
+
 /*
  * This file defines the Ex commands.
  * When DO_DECLARE_EXCMD is defined, the table with ex command names and
@@ -25,10 +27,6 @@
  * 4. Add documentation in ../doc/xxx.txt.  Add a tag for both the short and
  *    long name of the command.
  */
-
-#ifdef RANGE
-# undef RANGE                   /* SASC on Amiga defines it */
-#endif
 
 #define RANGE           0x001   /* allow a linespecs */
 #define BANG            0x002   /* allow a ! after the command name */
@@ -76,7 +74,7 @@ typedef struct exarg exarg_T;
 #ifdef DO_DECLARE_EXCMD
 # define EX(a, b, c, d)  {(char_u *)b, c, (long_u)(d)}
 
-typedef void (*ex_func_T) __ARGS ((exarg_T *eap));
+typedef void (*ex_func_T)(exarg_T *eap);
 
 static struct cmdname {
   char_u      *cmd_name;        /* name of the command */
@@ -569,12 +567,6 @@ enum CMD_index
       RANGE|NOTADR|COUNT|TRLBAR|BANG),
   EX(CMD_ltag,            "ltag", ex_tag,
       NOTADR|TRLBAR|BANG|WORD1),
-  EX(CMD_lua,             "lua",          ex_lua,
-      RANGE|EXTRA|NEEDARG|CMDWIN),
-  EX(CMD_luado,           "luado",        ex_luado,
-      RANGE|DFLALL|EXTRA|NEEDARG|CMDWIN),
-  EX(CMD_luafile,         "luafile",      ex_luafile,
-      RANGE|FILE1|NEEDARG|CMDWIN),
   EX(CMD_lunmap,          "lunmap",       ex_unmap,
       EXTRA|TRLBAR|NOTRLCOM|USECTRLV|CMDWIN),
   EX(CMD_lvimgrep,        "lvimgrep",     ex_vimgrep,
@@ -617,10 +609,6 @@ enum CMD_index
       BANG|FILE1|TRLBAR),
   EX(CMD_mode,            "mode",         ex_mode,
       WORD1|TRLBAR|CMDWIN),
-  EX(CMD_mzscheme,        "mzscheme",     ex_mzscheme,
-      RANGE|EXTRA|DFLALL|NEEDARG|CMDWIN|SBOXOK),
-  EX(CMD_mzfile,          "mzfile",       ex_mzfile,
-      RANGE|FILE1|NEEDARG|CMDWIN),
   EX(CMD_next,            "next",         ex_next,
       RANGE|NOTADR|BANG|FILES|EDITCMD|ARGOPT|TRLBAR),
   EX(CMD_nbkey,           "nbkey",        ex_nbkey,
@@ -687,10 +675,6 @@ enum CMD_index
       RANGE|WHOLEFOLD|COUNT|EXFLAGS|TRLBAR|CMDWIN|SBOXOK),
   EX(CMD_pclose,          "pclose",       ex_pclose,
       BANG|TRLBAR),
-  EX(CMD_perl,            "perl",         ex_perl,
-      RANGE|EXTRA|DFLALL|NEEDARG|SBOXOK|CMDWIN),
-  EX(CMD_perldo,          "perldo",       ex_perldo,
-      RANGE|EXTRA|DFLALL|NEEDARG|CMDWIN),
   EX(CMD_pedit,           "pedit",        ex_pedit,
       BANG|FILE1|EDITCMD|ARGOPT|TRLBAR),
   EX(CMD_pop,             "pop",          ex_tag,
@@ -735,20 +719,6 @@ enum CMD_index
       RANGE|WHOLEFOLD|BANG|REGSTR|TRLBAR|ZEROR|CMDWIN|MODIFY),
   EX(CMD_pwd,             "pwd",          ex_pwd,
       TRLBAR|CMDWIN),
-  EX(CMD_python,          "python",       ex_python,
-      RANGE|EXTRA|NEEDARG|CMDWIN),
-  EX(CMD_pydo,            "pydo",         ex_pydo,
-      RANGE|DFLALL|EXTRA|NEEDARG|CMDWIN),
-  EX(CMD_pyfile,          "pyfile",       ex_pyfile,
-      RANGE|FILE1|NEEDARG|CMDWIN),
-  EX(CMD_py3,             "py3",          ex_py3,
-      RANGE|EXTRA|NEEDARG|CMDWIN),
-  EX(CMD_py3do,           "py3do",        ex_py3do,
-      RANGE|DFLALL|EXTRA|NEEDARG|CMDWIN),
-  EX(CMD_python3,         "python3",      ex_py3,
-      RANGE|EXTRA|NEEDARG|CMDWIN),
-  EX(CMD_py3file,         "py3file",      ex_py3file,
-      RANGE|FILE1|NEEDARG|CMDWIN),
   EX(CMD_quit,            "quit",         ex_quit,
       BANG|TRLBAR|CMDWIN),
   EX(CMD_quitall,         "quitall",      ex_quit_all,
@@ -783,12 +753,6 @@ enum CMD_index
       NEEDARG|EXTRA|NOTRLCOM),
   EX(CMD_runtime,         "runtime",      ex_runtime,
       BANG|NEEDARG|FILES|TRLBAR|SBOXOK|CMDWIN),
-  EX(CMD_ruby,            "ruby",         ex_ruby,
-      RANGE|EXTRA|NEEDARG|CMDWIN),
-  EX(CMD_rubydo,          "rubydo",       ex_rubydo,
-      RANGE|DFLALL|EXTRA|NEEDARG|CMDWIN),
-  EX(CMD_rubyfile,        "rubyfile",     ex_rubyfile,
-      RANGE|FILE1|NEEDARG|CMDWIN),
   EX(CMD_rundo,           "rundo",        ex_rundo,
       NEEDARG|FILE1),
   EX(CMD_rviminfo,        "rviminfo",     ex_viminfo,
@@ -841,8 +805,6 @@ enum CMD_index
       BANG|FILE1|RANGE|NOTADR|EDITCMD|ARGOPT|TRLBAR),
   EX(CMD_sfirst,          "sfirst",       ex_rewind,
       EXTRA|BANG|EDITCMD|ARGOPT|TRLBAR),
-  EX(CMD_shell,           "shell",        ex_shell,
-      TRLBAR|CMDWIN),
   EX(CMD_simalt,          "simalt",       ex_simalt,
       NEEDARG|WORD1|TRLBAR|CMDWIN),
   EX(CMD_sign,            "sign",         ex_sign,
@@ -863,8 +825,6 @@ enum CMD_index
       RANGE|NOTADR|ZEROR|EXTRA|TRLBAR|NOTRLCOM|USECTRLV|CMDWIN),
   EX(CMD_snext,           "snext",        ex_next,
       RANGE|NOTADR|BANG|FILES|EDITCMD|ARGOPT|TRLBAR),
-  EX(CMD_sniff,           "sniff",        ex_sniff,
-      EXTRA|TRLBAR),
   EX(CMD_snomagic,        "snomagic",     ex_submagic,
       RANGE|WHOLEFOLD|EXTRA|CMDWIN),
   EX(CMD_snoremap,        "snoremap",     ex_map,
@@ -965,12 +925,6 @@ enum CMD_index
       TRLBAR),
   EX(CMD_tabs,            "tabs",         ex_tabs,
       TRLBAR|CMDWIN),
-  EX(CMD_tcl,             "tcl",          ex_tcl,
-      RANGE|EXTRA|NEEDARG|CMDWIN),
-  EX(CMD_tcldo,           "tcldo",        ex_tcldo,
-      RANGE|DFLALL|EXTRA|NEEDARG|CMDWIN),
-  EX(CMD_tclfile,         "tclfile",      ex_tclfile,
-      RANGE|FILE1|NEEDARG|CMDWIN),
   EX(CMD_tearoff,         "tearoff",      ex_tearoff,
       NEEDARG|EXTRA|TRLBAR|NOTRLCOM|CMDWIN),
   EX(CMD_tfirst,          "tfirst",       ex_tag,
@@ -1175,7 +1129,7 @@ struct exarg {
   int bad_char;                 /* BAD_KEEP, BAD_DROP or replacement byte */
   int useridx;                  /* user command index */
   char_u      *errmsg;          /* returned error message */
-  char_u      *(*getline)__ARGS((int, void *, int));
+  char_u      *(*getline)(int, void *, int);
   void        *cookie;          /* argument for getline() */
   struct condstack *cstack;     /* condition stack for ":if" etc. */
 };
@@ -1187,5 +1141,49 @@ struct exarg {
 #define EXFLAG_LIST     0x01    /* 'l': list */
 #define EXFLAG_NR       0x02    /* '#': number */
 #define EXFLAG_PRINT    0x04    /* 'p': print */
+
+/*
+ * used for completion on the command line
+ */
+typedef struct expand {
+  int xp_context;                       /* type of expansion */
+  char_u      *xp_pattern;              /* start of item to expand */
+  int xp_pattern_len;                   /* bytes in xp_pattern before cursor */
+  char_u      *xp_arg;                  /* completion function */
+  int xp_scriptID;                      /* SID for completion function */
+  int xp_backslash;                     /* one of the XP_BS_ values */
+#ifndef BACKSLASH_IN_FILENAME
+  int xp_shell;                         /* TRUE for a shell command, more
+                                           characters need to be escaped */
+#endif
+  int xp_numfiles;                      /* number of files found by
+                                                    file name completion */
+  char_u      **xp_files;               /* list of files */
+  char_u      *xp_line;                 /* text being completed */
+  int xp_col;                           /* cursor position in line */
+} expand_T;
+
+/* values for xp_backslash */
+#define XP_BS_NONE      0       /* nothing special for backslashes */
+#define XP_BS_ONE       1       /* uses one backslash before a space */
+#define XP_BS_THREE     2       /* uses three backslashes before a space */
+
+/*
+ * Command modifiers ":vertical", ":browse", ":confirm" and ":hide" set a flag.
+ * This needs to be saved for recursive commands, put them in a structure for
+ * easy manipulation.
+ */
+typedef struct {
+  int hide;                             /* TRUE when ":hide" was used */
+  int split;                            /* flags for win_split() */
+  int tab;                              /* > 0 when ":tab" was used */
+  int confirm;                          /* TRUE to invoke yes/no dialog */
+  int keepalt;                          /* TRUE when ":keepalt" was used */
+  int keepmarks;                        /* TRUE when ":keepmarks" was used */
+  int keepjumps;                        /* TRUE when ":keepjumps" was used */
+  int lockmarks;                        /* TRUE when ":lockmarks" was used */
+  int keeppatterns;                     /* TRUE when ":keeppatterns" was used */
+  char_u      *save_ei;                 /* saved value of 'eventignore' */
+} cmdmod_T;
 
 #endif

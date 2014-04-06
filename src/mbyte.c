@@ -77,6 +77,9 @@
  * some commands, like ":menutrans"
  */
 
+#include <string.h>
+# include <wchar.h>
+
 #include "vim.h"
 #include "mbyte.h"
 #include "charset.h"
@@ -85,32 +88,25 @@
 #include "message.h"
 #include "misc1.h"
 #include "misc2.h"
+#include "memory.h"
 #include "option.h"
 #include "screen.h"
 #include "spell.h"
 #include "ui.h"
+#include "os/os.h"
 
 # define WINBYTE BYTE
 
-
-
-
-#ifdef HAVE_WCHAR_H
-# include <wchar.h>
-#endif
-
-
-
-static int enc_canon_search __ARGS((char_u *name));
-static int dbcs_char2len __ARGS((int c));
-static int dbcs_char2bytes __ARGS((int c, char_u *buf));
-static int dbcs_ptr2len __ARGS((char_u *p));
-static int dbcs_ptr2len_len __ARGS((char_u *p, int size));
-static int utf_ptr2cells_len __ARGS((char_u *p, int size));
-static int dbcs_char2cells __ARGS((int c));
-static int dbcs_ptr2cells_len __ARGS((char_u *p, int size));
-static int dbcs_ptr2char __ARGS((char_u *p));
-static int utf_safe_read_char_adv __ARGS((char_u **s, size_t *n));
+static int enc_canon_search(char_u *name);
+static int dbcs_char2len(int c);
+static int dbcs_char2bytes(int c, char_u *buf);
+static int dbcs_ptr2len(char_u *p);
+static int dbcs_ptr2len_len(char_u *p, int size);
+static int utf_ptr2cells_len(char_u *p, int size);
+static int dbcs_char2cells(int c);
+static int dbcs_ptr2cells_len(char_u *p, int size);
+static int dbcs_ptr2char(char_u *p);
+static int utf_safe_read_char_adv(char_u **s, size_t *n);
 
 /*
  * Lookup table to quickly get the length in bytes of a UTF-8 character from
@@ -144,35 +140,6 @@ static char utf8len_tab_zero[256] =
   2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
   3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,5,5,5,5,6,6,0,0,
 };
-
-/*
- * XIM often causes trouble.  Define XIM_DEBUG to get a log of XIM callbacks
- * in the "xim.log" file.
- */
-/* #define XIM_DEBUG */
-#ifdef XIM_DEBUG
-static void xim_log(char *s, ...)                 {
-  va_list arglist;
-  static FILE *fd = NULL;
-
-  if (fd == (FILE *)-1)
-    return;
-  if (fd == NULL) {
-    fd = mch_fopen("xim.log", "w");
-    if (fd == NULL) {
-      EMSG("Cannot open xim.log");
-      fd = (FILE *)-1;
-      return;
-    }
-  }
-
-  va_start(arglist, s);
-  vfprintf(fd, s, arglist);
-  va_end(arglist);
-}
-
-#endif
-
 
 /*
  * Canonical encoding names and their properties.
@@ -433,7 +400,8 @@ int enc_canon_props(char_u *name)
  * When there is something wrong: Returns an error message and doesn't change
  * anything.
  */
-char_u * mb_init()              {
+char_u * mb_init()
+{
   int i;
   int idx;
   int n;
@@ -458,10 +426,10 @@ char_u * mb_init()              {
     /* Accept any "8bit-" or "iso-8859-" name. */
     enc_unicode = 0;
     enc_utf8 = FALSE;
-  } else if (STRNCMP(p_enc, "2byte-", 6) == 0)   {
+  } else if (STRNCMP(p_enc, "2byte-", 6) == 0) {
     /* Unix: accept any "2byte-" name, assume current locale. */
     enc_dbcs_new = DBCS_2BYTE;
-  } else if ((idx = enc_canon_search(p_enc)) >= 0)   {
+  } else if ((idx = enc_canon_search(p_enc)) >= 0) {
     i = enc_canon_table[idx].prop;
     if (i & ENC_UNICODE) {
       /* Unicode */
@@ -472,10 +440,10 @@ char_u * mb_init()              {
         enc_unicode = 4;
       else
         enc_unicode = 0;
-    } else if (i & ENC_DBCS)   {
+    } else if (i & ENC_DBCS) {
       /* 2byte, handle below */
       enc_dbcs_new = enc_canon_table[idx].codepage;
-    } else   {
+    } else {
       /* Must be 8-bit. */
       enc_unicode = 0;
       enc_utf8 = FALSE;
@@ -509,7 +477,7 @@ char_u * mb_init()              {
     mb_off2cells = utf_off2cells;
     mb_ptr2char = utf_ptr2char;
     mb_head_off = utf_head_off;
-  } else if (enc_dbcs != 0)   {
+  } else if (enc_dbcs != 0) {
     mb_ptr2len = dbcs_ptr2len;
     mb_ptr2len_len = dbcs_ptr2len_len;
     mb_char2len = dbcs_char2len;
@@ -520,7 +488,7 @@ char_u * mb_init()              {
     mb_off2cells = dbcs_off2cells;
     mb_ptr2char = dbcs_ptr2char;
     mb_head_off = dbcs_head_off;
-  } else   {
+  } else {
     mb_ptr2len = latin_ptr2len;
     mb_ptr2len_len = latin_ptr2len_len;
     mb_char2len = latin_char2len;
@@ -558,14 +526,6 @@ char_u * mb_init()              {
     else if (enc_dbcs == 0)
       n = 1;
     else {
-# if defined(MACOS) || defined(__amigaos4__)
-      /*
-       * if mblen() is not available, character which MSB is turned on
-       * are treated as leading byte character. (note : This assumption
-       * is not always true.)
-       */
-      n = (i & 0x80) ? 2 : 1;
-# else
       char buf[MB_MAXBYTES + 1];
       if (i == NUL)             /* just in case mblen() can't handle "" */
         n = 1;
@@ -600,9 +560,7 @@ char_u * mb_init()              {
             n = 1;
         }
       }
-# endif
     }
-
     mb_bytelen_tab[i] = n;
   }
 
@@ -646,7 +604,8 @@ char_u * mb_init()              {
  * 4 - UCS-4 BOM
  * 3 - UTF-8 BOM
  */
-int bomb_size()         {
+int bomb_size()
+{
   int n = 0;
 
   if (curbuf->b_p_bomb && !curbuf->b_p_bin) {
@@ -953,7 +912,7 @@ struct interval {
   long first;
   long last;
 };
-static int intable __ARGS((struct interval *table, size_t size, int c));
+static int intable(struct interval *table, size_t size, int c);
 
 /*
  * Return TRUE if "c" is in "table[size / sizeof(struct interval)]".
@@ -1526,34 +1485,6 @@ int mb_cptr2char_adv(char_u **pp)
   else
     *pp += (*mb_ptr2len)(*pp);
   return c;
-}
-
-/*
- * Check whether we are dealing with Arabic combining characters.
- * Note: these are NOT really composing characters!
- */
-int arabic_combine(
-    int one,                    /* first character */
-    int two                     /* character just after "one" */
-    )
-{
-  if (one == a_LAM)
-    return arabic_maycombine(two);
-  return FALSE;
-}
-
-/*
- * Check whether we are dealing with a character that could be regarded as an
- * Arabic combining character, need to check the character before this.
- */
-int arabic_maycombine(int two)
-{
-  if (p_arshape && !p_tbidi)
-    return two == a_ALEF_MADDA
-      || two == a_ALEF_HAMZA_ABOVE
-      || two == a_ALEF_HAMZA_BELOW
-      || two == a_ALEF;
-  return FALSE;
 }
 
 /*
@@ -2405,8 +2336,8 @@ static convertStruct foldCase[] =
   {0x10400,0x10427,1,40}
 };
 
-static int utf_convert __ARGS((int a, convertStruct table[], int tableSize));
-static int utf_strnicmp __ARGS((char_u *s1, char_u *s2, size_t n1, size_t n2));
+static int utf_convert(int a, convertStruct table[], int tableSize);
+static int utf_strnicmp(char_u *s1, char_u *s2, size_t n1, size_t n2);
 
 /*
  * Generic conversion function for case operations.
@@ -2758,7 +2689,7 @@ int utf_toupper(int a)
   if (a < 128 && (cmp_flags & CMP_KEEPASCII))
     return TOUPPER_ASC(a);
 
-#if defined(HAVE_TOWUPPER) && defined(__STDC_ISO_10646__)
+#if defined(__STDC_ISO_10646__)
   /* If towupper() is available and handles Unicode, use it. */
   if (!(cmp_flags & CMP_INTERNAL))
     return towupper(a);
@@ -2788,7 +2719,7 @@ int utf_tolower(int a)
   if (a < 128 && (cmp_flags & CMP_KEEPASCII))
     return TOLOWER_ASC(a);
 
-#if defined(HAVE_TOWLOWER) && defined(__STDC_ISO_10646__)
+#if defined(__STDC_ISO_10646__)
   /* If towlower() is available and handles Unicode, use it. */
   if (!(cmp_flags & CMP_INTERNAL))
     return towlower(a);
@@ -2846,7 +2777,7 @@ static int utf_strnicmp(char_u *s1, char_u *s2, size_t n1, size_t n2)
   if (c1 != -1 && c2 == -1) {
     n1 = utf_char2bytes(utf_fold(c1), buffer);
     s1 = buffer;
-  } else if (c2 != -1 && c1 == -1)   {
+  } else if (c2 != -1 && c1 == -1) {
     n2 = utf_char2bytes(utf_fold(c2), buffer);
     s2 = buffer;
   }
@@ -2888,7 +2819,7 @@ int mb_strnicmp(char_u *s1, char_u *s2, size_t nn)
 
   if (enc_utf8) {
     return utf_strnicmp(s1, s2, nn, nn);
-  } else   {
+  } else {
     for (i = 0; i < n; i += l) {
       if (s1[i] == NUL && s2[i] == NUL)         /* both strings end */
         return 0;
@@ -2897,11 +2828,11 @@ int mb_strnicmp(char_u *s1, char_u *s2, size_t nn)
       if (l <= 1) {
         /* Single byte: first check normally, then with ignore case. */
         if (s1[i] != s2[i]) {
-          cdiff = MB_TOLOWER(s1[i]) - MB_TOLOWER(s2[i]);
+          cdiff = vim_tolower(s1[i]) - vim_tolower(s2[i]);
           if (cdiff != 0)
             return cdiff;
         }
-      } else   {
+      } else {
         /* For non-Unicode multi-byte don't ignore case. */
         if (l > n - i)
           l = n - i;
@@ -2918,7 +2849,8 @@ int mb_strnicmp(char_u *s1, char_u *s2, size_t nn)
  * "g8": show bytes of the UTF-8 char under the cursor.  Doesn't matter what
  * 'encoding' has been set to.
  */
-void show_utf8()          {
+void show_utf8()
+{
   int len;
   int rlen = 0;
   char_u      *line;
@@ -3071,7 +3003,7 @@ void mb_copy_char(char_u **fp, char_u **tp)
 {
   int l = (*mb_ptr2len)(*fp);
 
-  mch_memmove(*tp, *fp, (size_t)l);
+  memmove(*tp, *fp, (size_t)l);
   *tp += l;
   *fp += l;
 }
@@ -3146,7 +3078,8 @@ int mb_tail_off(char_u *base, char_u *p)
 /*
  * Find the next illegal byte sequence.
  */
-void utf_find_illegal()          {
+void utf_find_illegal()
+{
   pos_T pos = curwin->w_cursor;
   char_u      *p;
   int len;
@@ -3213,7 +3146,8 @@ theend:
  * Thus it moves left if necessary.
  * Return TRUE when the cursor was adjusted.
  */
-void mb_adjust_cursor()          {
+void mb_adjust_cursor()
+{
   mb_adjustpos(curbuf, &curwin->w_cursor);
 }
 
@@ -3342,8 +3276,6 @@ char_u * mb_unescape(char_u **pp)
  */
 int mb_lefthalve(int row, int col)
 {
-  if (composing_hangul)
-    return TRUE;
   return (*mb_off2cells)(LineOffset[row] + col,
       LineOffset[row] + screen_Columns) > 1;
 }
@@ -3366,7 +3298,7 @@ int mb_fix_col(int col, int row)
   return col;
 }
 
-static int enc_alias_search __ARGS((char_u *name));
+static int enc_alias_search(char_u *name);
 
 /*
  * Skip the Vim specific head of a 'encoding' name.
@@ -3440,7 +3372,7 @@ char_u * enc_canonize(char_u *enc)
       /* canonical name can be used unmodified */
       if (p != r)
         STRMOVE(r, p);
-    } else if ((i = enc_alias_search(p)) >= 0)   {
+    } else if ((i = enc_alias_search(p)) >= 0) {
       /* alias recognized, get canonical name */
       vim_free(r);
       r = vim_strsave((char_u *)enc_canon_table[i].name);
@@ -3472,7 +3404,8 @@ static int enc_alias_search(char_u *name)
  * Get the canonicalized encoding of the current locale.
  * Returns an allocated string when successful, NULL when not.
  */
-char_u * enc_locale()              {
+char_u * enc_locale()
+{
   char        *s;
   char        *p;
   int i;
@@ -3483,9 +3416,9 @@ char_u * enc_locale()              {
 #  if defined(HAVE_LOCALE_H) || defined(X_LOCALE)
     if ((s = setlocale(LC_CTYPE, NULL)) == NULL || *s == NUL)
 #  endif
-      if ((s = getenv("LC_ALL")) == NULL || *s == NUL)
-        if ((s = getenv("LC_CTYPE")) == NULL || *s == NUL)
-          s = getenv("LANG");
+      if ((s = (char *)os_getenv("LC_ALL")) == NULL || *s == NUL)
+        if ((s = (char *)os_getenv("LC_CTYPE")) == NULL || *s == NUL)
+          s = (char *)os_getenv("LANG");
 
   if (s == NULL || *s == NUL)
     return FAIL;
@@ -3526,8 +3459,8 @@ char_u * enc_locale()              {
 # if defined(USE_ICONV) || defined(PROTO)
 
 static char_u *
-iconv_string __ARGS((vimconv_T *vcp, char_u *str, int slen, int *unconvlenp,
-      int *resultlenp));
+iconv_string(vimconv_T *vcp, char_u *str, int slen, int *unconvlenp,
+             int *resultlenp);
 
 /*
  * Call iconv_open() with a check if iconv() works properly (there are broken
@@ -3605,7 +3538,7 @@ static char_u * iconv_string(vimconv_T *vcp, char_u *str, int slen, int *unconvl
       len = len + fromlen * 2 + 40;
       p = alloc((unsigned)len);
       if (p != NULL && done > 0)
-        mch_memmove(p, result, done);
+        memmove(p, result, done);
       vim_free(result);
       result = p;
       if (result == NULL)       /* out of memory */
@@ -3652,7 +3585,7 @@ static char_u * iconv_string(vimconv_T *vcp, char_u *str, int slen, int *unconvl
       }
       from += l;
       fromlen -= l;
-    } else if (ICONV_ERRNO != ICONV_E2BIG)   {
+    } else if (ICONV_ERRNO != ICONV_E2BIG) {
       /* conversion failed */
       vim_free(result);
       result = NULL;
@@ -3690,7 +3623,8 @@ static HINSTANCE hMsvcrtDLL = 0;
  * Get the address of 'funcname' which is imported by 'hInst' DLL.
  */
 static void * get_iconv_import_func(HINSTANCE hInst,
-    const char *funcname)                   {
+    const char *funcname)
+{
   PBYTE pImage = (PBYTE)hInst;
   PIMAGE_DOS_HEADER pDOS = (PIMAGE_DOS_HEADER)hInst;
   PIMAGE_NT_HEADERS pPE;
@@ -3770,7 +3704,8 @@ int iconv_enabled(int verbose)
   return TRUE;
 }
 
-void iconv_end()          {
+void iconv_end()
+{
   /* Don't use iconv() when inputting or outputting characters. */
   if (input_conv.vc_type == CONV_ICONV)
     convert_setup(&input_conv, NULL, NULL);
@@ -3853,14 +3788,14 @@ int convert_setup_ext(vcp, from, from_unicode_is_utf8, to, to_unicode_is_utf8)
     /* Internal latin1 -> utf-8 conversion. */
     vcp->vc_type = CONV_TO_UTF8;
     vcp->vc_factor = 2;         /* up to twice as long */
-  } else if ((from_prop & ENC_LATIN9) && to_is_utf8)   {
+  } else if ((from_prop & ENC_LATIN9) && to_is_utf8) {
     /* Internal latin9 -> utf-8 conversion. */
     vcp->vc_type = CONV_9_TO_UTF8;
     vcp->vc_factor = 3;         /* up to three as long (euro sign) */
-  } else if (from_is_utf8 && (to_prop & ENC_LATIN1))   {
+  } else if (from_is_utf8 && (to_prop & ENC_LATIN1)) {
     /* Internal utf-8 -> latin1 conversion. */
     vcp->vc_type = CONV_TO_LATIN1;
-  } else if (from_is_utf8 && (to_prop & ENC_LATIN9))   {
+  } else if (from_is_utf8 && (to_prop & ENC_LATIN9)) {
     /* Internal utf-8 -> latin9 conversion. */
     vcp->vc_type = CONV_TO_LATIN9;
   }
@@ -3882,7 +3817,7 @@ int convert_setup_ext(vcp, from, from_unicode_is_utf8, to, to_unicode_is_utf8)
   return OK;
 }
 
-#if defined(FEAT_GUI) || defined(AMIGA) || defined(WIN3264) \
+#if defined(FEAT_GUI) || defined(WIN3264) \
   || defined(MSDOS) || defined(PROTO)
 /*
  * Do conversion on typed input characters in-place.
@@ -3922,10 +3857,10 @@ int convert_input_safe(ptr, len, maxlen, restp, restlenp)
         /* Move the unconverted characters to allocated memory. */
         *restp = alloc(unconvertlen);
         if (*restp != NULL)
-          mch_memmove(*restp, ptr + len - unconvertlen, unconvertlen);
+          memmove(*restp, ptr + len - unconvertlen, unconvertlen);
         *restlenp = unconvertlen;
       }
-      mch_memmove(ptr, d, dlen);
+      memmove(ptr, d, dlen);
     } else
       /* result is too long, keep the unconverted text (the caller must
        * have done something wrong!) */
@@ -4043,7 +3978,7 @@ char_u * string_convert_ext(vcp, ptr, lenp, unconvlenp)
             break;
           }
           *d++ = ptr[i];
-        } else   {
+        } else {
           c = utf_ptr2char(ptr + i);
           if (vcp->vc_type == CONV_TO_LATIN9)
             switch (c) {
@@ -4070,7 +4005,7 @@ char_u * string_convert_ext(vcp, ptr, lenp, unconvlenp)
             else if (vcp->vc_fail) {
               vim_free(retval);
               return NULL;
-            } else   {
+            } else {
               *d++ = 0xbf;
               if (utf_char2cells(c) > 1)
                 *d++ = '?';

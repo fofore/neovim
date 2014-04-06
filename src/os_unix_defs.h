@@ -16,15 +16,7 @@
 # include <sys/types.h>
 # include <sys/stat.h>
 
-#ifdef HAVE_STDLIB_H
 # include <stdlib.h>
-#endif
-
-
-
-/* On AIX 4.2 there is a conflicting prototype for ioctl() in stropts.h and
- * unistd.h.  This hack should fix that (suggested by Jeff George).
- * But on AIX 4.3 it's alright (suggested by Jake Hamby). */
 
 #ifdef HAVE_UNISTD_H
 # include <unistd.h>
@@ -41,16 +33,6 @@
 /*
  * Sun defines FILE on SunOS 4.x.x, Solaris has a typedef for FILE
  */
-
-#ifndef __ARGS
-/* The AIX VisualAge cc compiler defines __EXTENDED__ instead of __STDC__
- * because it includes pre-ansi features. */
-# if defined(__STDC__) || defined(__GNUC__) || defined(__EXTENDED__)
-#  define __ARGS(x) x
-# else
-#  define __ARGS(x) ()
-# endif
-#endif
 
 /* always use unlink() to remove files */
 #  define vim_mkdir(x, y) mkdir((char *)(x), y)
@@ -131,22 +113,14 @@
 
 #define BASENAMELEN     (MAXNAMLEN - 5)
 
-#ifdef HAVE_PWD_H
-# include <pwd.h>
-#endif
-
-#ifdef __COHERENT__
-# undef __ARGS
-#endif
-
 /*
  * Unix system-dependent file names
  */
 #ifndef SYS_VIMRC_FILE
-# define SYS_VIMRC_FILE "$VIM/vimrc"
+# define SYS_VIMRC_FILE "$VIM/nvimrc"
 #endif
 #ifndef SYS_GVIMRC_FILE
-# define SYS_GVIMRC_FILE "$VIM/gvimrc"
+# define SYS_GVIMRC_FILE "$VIM/ngvimrc"
 #endif
 #ifndef DFLT_HELPFILE
 # define DFLT_HELPFILE  "$VIMRUNTIME/doc/help.txt"
@@ -179,21 +153,21 @@
 
 
 #ifndef USR_VIMRC_FILE
-#  define USR_VIMRC_FILE "$HOME/.neovimrc"
+#  define USR_VIMRC_FILE "$HOME/.nvimrc"
 #endif
 
 
 #if !defined(USR_EXRC_FILE2)
-#    define USR_VIMRC_FILE2     "~/.neovim/vimrc"
+#    define USR_VIMRC_FILE2     "~/.nvim/nvimrc"
 #endif
 
 
 #ifndef USR_GVIMRC_FILE
-#  define USR_GVIMRC_FILE "$HOME/.neogvimrc"
+#  define USR_GVIMRC_FILE "$HOME/.ngvimrc"
 #endif
 
 #ifndef USR_GVIMRC_FILE2
-#   define USR_GVIMRC_FILE2     "~/.neovim/gvimrc"
+#   define USR_GVIMRC_FILE2     "~/.nvim/ngvimrc"
 #endif
 
 
@@ -202,7 +176,7 @@
 #endif
 
 # ifndef VIMINFO_FILE
-#   define VIMINFO_FILE "$HOME/.neoviminfo"
+#   define VIMINFO_FILE "$HOME/.nviminfo"
 # endif
 
 #ifndef EXRC_FILE
@@ -210,7 +184,7 @@
 #endif
 
 #ifndef VIMRC_FILE
-# define VIMRC_FILE     ".neovimrc"
+# define VIMRC_FILE     ".nvimrc"
 #endif
 
 
@@ -227,17 +201,17 @@
 #endif
 
 #ifndef DFLT_VDIR
-#   define DFLT_VDIR    "$HOME/.neovim/view"       /* default for 'viewdir' */
+#   define DFLT_VDIR    "$HOME/.nvim/view"       /* default for 'viewdir' */
 #endif
 
 #define DFLT_ERRORFILE          "errors.err"
 
 #  ifdef RUNTIME_GLOBAL
-#   define DFLT_RUNTIMEPATH     "~/.neovim," RUNTIME_GLOBAL ",$VIMRUNTIME," \
-  RUNTIME_GLOBAL "/after,~/.neovim/after"
+#   define DFLT_RUNTIMEPATH     "~/.nvim," RUNTIME_GLOBAL ",$VIMRUNTIME," \
+  RUNTIME_GLOBAL "/after,~/.nvim/after"
 #  else
 #   define DFLT_RUNTIMEPATH \
-  "~/.neovim,$VIM/vimfiles,$VIMRUNTIME,$VIM/vimfiles/after,~/.neovim/after"
+  "~/.nvim,$VIM/vimfiles,$VIMRUNTIME,$VIM/vimfiles/after,~/.nvim/after"
 #  endif
 
 #  define TEMPDIRNAMES  "$TMPDIR", "/tmp", ".", "$HOME"
@@ -271,38 +245,6 @@
 #  define DFLT_MAXMEMTOT        (10*1024)    /* use up to 10 Mbyte for Vim */
 # endif
 
-/* memmove is not present on all systems, use memmove, bcopy, memcpy or our
- * own version */
-/* Some systems have (void *) arguments, some (char *). If we use (char *) it
- * works for all */
-#ifdef USEMEMMOVE
-# define mch_memmove(to, from, len) memmove((char *)(to), (char *)(from), len)
-#else
-# ifdef USEBCOPY
-#  define mch_memmove(to, from, len) bcopy((char *)(from), (char *)(to), len)
-# else
-#  ifdef USEMEMCPY
-#   define mch_memmove(to, from, len) memcpy((char *)(to), (char *)(from), len)
-#  else
-#   define VIM_MEMMOVE      /* found in misc2.c */
-#  endif
-# endif
-#endif
-
-# ifdef HAVE_RENAME
-#  define mch_rename(src, dst) rename(src, dst)
-# else
-int mch_rename __ARGS((const char *src, const char *dest));
-# endif
-#  ifdef __MVS__
-/* on OS390 Unix getenv() doesn't return a pointer to persistent
- * storage -> use __getenv() */
-#   define mch_getenv(x) (char_u *)__getenv((char *)(x))
-#  else
-#   define mch_getenv(x) (char_u *)getenv((char *)(x))
-#  endif
-#  define mch_setenv(name, val, x) setenv(name, val, x)
-
 #if !defined(S_ISDIR) && defined(S_IFDIR)
 # define        S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
 #endif
@@ -324,24 +266,20 @@ int mch_rename __ARGS((const char *src, const char *dest));
 
 /* Note: Some systems need both string.h and strings.h (Savage).  However,
  * some systems can't handle both, only use string.h in that case. */
-#ifdef HAVE_STRING_H
 # include <string.h>
-#endif
 #if defined(HAVE_STRINGS_H) && !defined(NO_STRINGS_WITH_STRING_H)
 # include <strings.h>
 #endif
 
-#if defined(HAVE_SETJMP_H)
-# include <setjmp.h>
-# ifdef HAVE_SIGSETJMP
-#  define JMP_BUF sigjmp_buf
-#  define SETJMP(x) sigsetjmp((x), 1)
-#  define LONGJMP siglongjmp
-# else
-#  define JMP_BUF jmp_buf
-#  define SETJMP(x) setjmp(x)
-#  define LONGJMP longjmp
-# endif
+#include <setjmp.h>
+#ifdef HAVE_SIGSETJMP
+# define JMP_BUF sigjmp_buf
+# define SETJMP(x) sigsetjmp((x), 1)
+# define LONGJMP siglongjmp
+#else
+# define JMP_BUF jmp_buf
+# define SETJMP(x) setjmp(x)
+# define LONGJMP longjmp
 #endif
 
 #define HAVE_DUP                /* have dup() */

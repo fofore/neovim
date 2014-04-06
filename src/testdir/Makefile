@@ -2,6 +2,8 @@
 # Makefile to run all tests for Vim
 #
 
+export SHELL := sh
+
 VIMPROG := ../../build/bin/nvim
 
 SCRIPTS := test1.out test2.out test3.out test4.out test5.out test6.out \
@@ -27,19 +29,31 @@ SCRIPTS := test1.out test2.out test3.out test4.out test5.out test6.out \
 
 SCRIPTS_GUI := test16.out
 
-ifdef VALGRIND_CHECK
-VALGRIND = valgrind --suppressions=../../.valgrind.supp --leak-check=full --error-exitcode=111 --log-file=valgrind.$*
+
+ifdef VALGRIND_GDB
+VGDB := --vgdb=yes --vgdb-error=0
+endif
+
+ifdef USE_VALGRIND
+VALGRIND_TOOL=--tool=memcheck --leak-check=yes --track-origins=yes
+# VALGRIND_TOOL=exp-sgcheck
+TOOL = valgrind -q -q $(VALGRIND_TOOL) --suppressions=../../.valgrind.supp --error-exitcode=123 --log-file=valgrind.\%p.$* $(VGDB) --trace-children=yes
+else
+ifdef USE_GDB
+TOOL = gdb --args
+endif
 endif
 
 ifdef TESTNUM
 SCRIPTS := test$(TESTNUM).out
 endif
 
-.SUFFIXES: .in .out
-
 nongui:	nolog $(SCRIPTS) report
 
 gui:	nolog $(SCRIPTS) $(SCRIPTS_GUI) report
+
+.gdbinit:
+	echo 'set $$_exitcode = -1\nrun\nif $$_exitcode != -1\n  quit\nend' > .gdbinit
 
 report:
 	@echo
@@ -53,12 +67,12 @@ $(SCRIPTS) $(SCRIPTS_GUI): $(VIMPROG)
 
 RM_ON_RUN = test.out X* viminfo
 RM_ON_START = tiny.vim small.vim mbyte.vim mzscheme.vim lua.vim test.ok
-RUN_VIM = $(VALGRIND) $(VIMPROG) -u unix.vim -U NONE --noplugin -s dotest.in
+RUN_VIM = $(TOOL) $(VIMPROG) -u unix.vim -U NONE --noplugin -s dotest.in
 
 clean:
-	-rm -rf *.out *.failed *.rej *.orig test.log $(RM_ON_RUN) $(RM_ON_START) valgrind.*
+	-rm -rf *.out *.failed *.rej *.orig test.log $(RM_ON_RUN) $(RM_ON_START) valgrind.* .*.swp .*.swo
 
-test1.out: test1.in
+test1.out: .gdbinit test1.in
 	-rm -rf $*.failed $(RM_ON_RUN) $(RM_ON_START) wrongtermsize
 	$(RUN_VIM) $*.in
 	@/bin/sh -c "if test -e wrongtermsize; \
@@ -72,14 +86,14 @@ test1.out: test1.in
 		echo; exit 1; fi"
 	-rm -rf X* viminfo
 
-.in.out:
+%.out: %.in .gdbinit
 	-rm -rf $*.failed test.ok $(RM_ON_RUN)
 	cp $*.ok test.ok
 	# Sleep a moment to avoid that the xterm title is messed up.
 	# 200 msec is sufficient, but only modern sleep supports a fraction of
 	# a second, fall back to a second if it fails.
 	@-/bin/sh -c "sleep .2 > /dev/null 2>&1 || sleep 1"
-	-$(RUN_VIM) $*.in
+	$(RUN_VIM) $*.in
 
 	# For flaky tests retry one time.
 	@/bin/sh -c "if test -f test.out -a $* = test61; then \

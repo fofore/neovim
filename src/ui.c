@@ -16,6 +16,8 @@
  * 3. Input buffer stuff.
  */
 
+#include <string.h>
+
 #include "vim.h"
 #include "ui.h"
 #include "diff.h"
@@ -26,10 +28,14 @@
 #include "misc1.h"
 #include "misc2.h"
 #include "garray.h"
+#include "memory.h"
 #include "move.h"
 #include "normal.h"
 #include "option.h"
 #include "os_unix.h"
+#include "os/time.h"
+#include "os/input.h"
+#include "os/signal.h"
 #include "screen.h"
 #include "term.h"
 #include "window.h"
@@ -77,11 +83,11 @@ void ui_inchar_undo(char_u *s, int len)
   new = alloc(newlen);
   if (new != NULL) {
     if (ta_str != NULL) {
-      mch_memmove(new, ta_str + ta_off, (size_t)(ta_len - ta_off));
-      mch_memmove(new + ta_len - ta_off, s, (size_t)len);
+      memmove(new, ta_str + ta_off, (size_t)(ta_len - ta_off));
+      memmove(new + ta_len - ta_off, s, (size_t)len);
       vim_free(ta_str);
     } else
-      mch_memmove(new, s, (size_t)len);
+      memmove(new, s, (size_t)len);
     ta_str = new;
     ta_len = newlen;
     ta_off = 0;
@@ -125,7 +131,7 @@ ui_inchar (
     static int count = 0;
 
 # ifndef NO_CONSOLE
-    retval = mch_inchar(buf, maxlen, (wtime >= 0 && wtime < 10)
+    retval = os_inchar(buf, maxlen, (wtime >= 0 && wtime < 10)
         ? 10L : wtime, tb_change_cnt);
     if (retval > 0 || typebuf_changed(tb_change_cnt) || wtime >= 0)
       goto theend;
@@ -141,7 +147,7 @@ ui_inchar (
   /* If we are going to wait for some time or block... */
   if (wtime == -1 || wtime > 100L) {
     /* ... allow signals to kill us. */
-    (void)vim_handle_signal(SIGNAL_UNBLOCK);
+    signal_accept_deadly();
 
     /* ... there is no need for CTRL-C to interrupt something, don't let
      * it set got_int when it was mapped. */
@@ -151,13 +157,13 @@ ui_inchar (
 
 #ifndef NO_CONSOLE
   {
-    retval = mch_inchar(buf, maxlen, wtime, tb_change_cnt);
+    retval = os_inchar(buf, maxlen, wtime, tb_change_cnt);
   }
 #endif
 
   if (wtime == -1 || wtime > 100L)
     /* block SIGHUP et al. */
-    (void)vim_handle_signal(SIGNAL_BLOCK);
+    signal_reject_deadly();
 
   ctrl_c_interrupts = TRUE;
 
@@ -172,13 +178,14 @@ theend:
 /*
  * return non-zero if a character is available
  */
-int ui_char_avail(void)         {
+int ui_char_avail(void)
+{
 #ifndef NO_CONSOLE
 # ifdef NO_CONSOLE_INPUT
   if (no_console_input())
     return 0;
 # endif
-  return mch_char_avail();
+  return os_char_avail();
 #else
   return 0;
 #endif
@@ -190,7 +197,7 @@ int ui_char_avail(void)         {
  */
 void ui_delay(long msec, int ignoreinput)
 {
-  mch_delay(msec, ignoreinput);
+  os_delay(msec, ignoreinput);
 }
 
 /*
@@ -198,32 +205,18 @@ void ui_delay(long msec, int ignoreinput)
  * otherwise fake it by starting a new shell.
  * When running the GUI iconify the window.
  */
-void ui_suspend(void)          {
+void ui_suspend(void)
+{
   mch_suspend();
 }
-
-#if !defined(UNIX) || !defined(SIGTSTP) || defined(PROTO) || defined(__BEOS__)
-/*
- * When the OS can't really suspend, call this function to start a shell.
- * This is never called in the GUI.
- */
-void suspend_shell(void)          {
-  if (*p_sh == NUL)
-    EMSG(_(e_shellempty));
-  else {
-    MSG_PUTS(_("new shell started\n"));
-    do_shell(NULL, 0);
-  }
-}
-
-#endif
 
 /*
  * Try to get the current Vim shell size.  Put the result in Rows and Columns.
  * Use the new sizes as defaults for 'columns' and 'lines'.
  * Return OK when size could be determined, FAIL otherwise.
  */
-int ui_get_shellsize(void)         {
+int ui_get_shellsize(void)
+{
   int retval;
 
   retval = mch_get_shellsize();
@@ -255,14 +248,16 @@ ui_set_shellsize (
  * Called when Rows and/or Columns changed.  Adjust scroll region and mouse
  * region.
  */
-void ui_new_shellsize(void)          {
+void ui_new_shellsize(void)
+{
   if (full_screen && !exiting) {
     mch_new_shellsize();
   }
 }
 
-void ui_breakcheck(void)          {
-  mch_breakcheck();
+void ui_breakcheck(void)
+{
+  os_breakcheck();
 }
 
 /*****************************************************************************
@@ -297,17 +292,7 @@ void ui_breakcheck(void)          {
  * descriptions which would otherwise overflow.  The buffer is considered full
  * when only this extra space (or part of it) remains.
  */
-#if defined(FEAT_SUN_WORKSHOP) || defined(FEAT_NETBEANS_INTG) \
-  || defined(FEAT_CLIENTSERVER)
-/*
- * Sun WorkShop and NetBeans stuff debugger commands into the input buffer.
- * This requires a larger buffer...
- * (Madsen) Go with this for remote input as well ...
- */
 # define INBUFLEN 4096
-#else
-# define INBUFLEN 250
-#endif
 
 static char_u inbuf[INBUFLEN + MAX_KEY_CODE_LEN];
 static int inbufcount = 0;          /* number of chars in inbuf[] */
@@ -318,19 +303,20 @@ static int inbufcount = 0;          /* number of chars in inbuf[] */
  * are used by the gui_* calls when a GUI is used to handle keyboard input.
  */
 
-int vim_is_input_buf_full(void)         {
+int vim_is_input_buf_full(void)
+{
   return inbufcount >= INBUFLEN;
 }
 
-int vim_is_input_buf_empty(void)         {
+int vim_is_input_buf_empty(void)
+{
   return inbufcount == 0;
 }
 
-#if defined(FEAT_OLE) || defined(PROTO)
-int vim_free_in_input_buf(void)         {
+#ifdef PROTO
+int vim_free_in_input_buf(void) {
   return INBUFLEN - inbufcount;
 }
-
 #endif
 
 
@@ -338,7 +324,8 @@ int vim_free_in_input_buf(void)         {
  * Return the current contents of the input buffer and make it empty.
  * The returned pointer must be passed to set_input_buf() later.
  */
-char_u *get_input_buf(void)              {
+char_u *get_input_buf(void)
+{
   garray_T    *gap;
 
   /* We use a growarray to store the data pointer and the length. */
@@ -347,7 +334,7 @@ char_u *get_input_buf(void)              {
     /* Add one to avoid a zero size. */
     gap->ga_data = alloc((unsigned)inbufcount + 1);
     if (gap->ga_data != NULL)
-      mch_memmove(gap->ga_data, inbuf, (size_t)inbufcount);
+      memmove(gap->ga_data, inbuf, (size_t)inbufcount);
     gap->ga_len = inbufcount;
   }
   trash_input_buf();
@@ -364,7 +351,7 @@ void set_input_buf(char_u *p)
 
   if (gap != NULL) {
     if (gap->ga_data != NULL) {
-      mch_memmove(inbuf, gap->ga_data, gap->ga_len);
+      memmove(inbuf, gap->ga_data, gap->ga_len);
       inbufcount = gap->ga_len;
       vim_free(gap->ga_data);
     }
@@ -375,7 +362,6 @@ void set_input_buf(char_u *p)
 #if defined(FEAT_GUI) \
   || defined(FEAT_MOUSE_GPM) || defined(FEAT_SYSMOUSE) \
   || defined(FEAT_XCLIPBOARD) || defined(VMS) \
-  || defined(FEAT_SNIFF) || defined(FEAT_CLIENTSERVER) \
   || defined(PROTO)
 /*
  * Add the given bytes to the input buffer
@@ -432,7 +418,8 @@ void push_raw_key(char_u *s, int len)
 #if defined(FEAT_GUI) || defined(FEAT_EVAL) || defined(FEAT_EX_EXTRA) \
   || defined(PROTO)
 /* Remove everything from the input buffer.  Called when ^C is found */
-void trash_input_buf(void)          {
+void trash_input_buf(void)
+{
   inbufcount = 0;
 }
 
@@ -449,10 +436,10 @@ int read_from_input_buf(char_u *buf, long maxlen)
     fill_input_buf(TRUE);
   if (maxlen > inbufcount)
     maxlen = inbufcount;
-  mch_memmove(buf, inbuf, (size_t)maxlen);
+  memmove(buf, inbuf, (size_t)maxlen);
   inbufcount -= maxlen;
   if (inbufcount)
-    mch_memmove(inbuf, inbuf + maxlen, (size_t)inbufcount);
+    memmove(inbuf, inbuf + maxlen, (size_t)inbufcount);
   return (int)maxlen;
 }
 
@@ -461,7 +448,6 @@ void fill_input_buf(int exit_on_error)
 #if defined(UNIX) || defined(OS2) || defined(VMS) || defined(MACOS_X_UNIX)
   int len;
   int try;
-  static int did_read_something = FALSE;
   static char_u *rest = NULL;       /* unconverted rest of previous read */
   static int restlen = 0;
   int unconverted;
@@ -485,13 +471,13 @@ void fill_input_buf(int exit_on_error)
       unconverted = INBUFLEN - inbufcount;
     else
       unconverted = restlen;
-    mch_memmove(inbuf + inbufcount, rest, unconverted);
+    memmove(inbuf + inbufcount, rest, unconverted);
     if (unconverted == restlen) {
       vim_free(rest);
       rest = NULL;
-    } else   {
+    } else {
       restlen -= unconverted;
-      mch_memmove(rest, rest + unconverted, restlen);
+      memmove(rest, rest + unconverted, restlen);
     }
     inbufcount += unconverted;
   } else
@@ -499,45 +485,25 @@ void fill_input_buf(int exit_on_error)
 
   len = 0;      /* to avoid gcc warning */
   for (try = 0; try < 100; ++try) {
-    len = read(read_cmd_fd,
-        (char *)inbuf + inbufcount, (size_t)((INBUFLEN - inbufcount)
-                                             / input_conv.vc_factor
-                                             ));
+    len = input_read(
+        (char *)inbuf + inbufcount,
+        (size_t)((INBUFLEN - inbufcount) / input_conv.vc_factor));
 
     if (len > 0 || got_int)
       break;
-    /*
-     * If reading stdin results in an error, continue reading stderr.
-     * This helps when using "foo | xargs vim".
-     */
-    if (!did_read_something && !isatty(read_cmd_fd) && read_cmd_fd == 0) {
-      int m = cur_tmode;
 
-      /* We probably set the wrong file descriptor to raw mode.  Switch
-       * back to cooked mode, use another descriptor and set the mode to
-       * what it was. */
-      settmode(TMODE_COOK);
-#ifdef HAVE_DUP
-      /* Use stderr for stdin, also works for shell commands. */
-      close(0);
-      ignored = dup(2);
-#else
-      read_cmd_fd = 2;          /* read from stderr instead of stdin */
-#endif
-      settmode(m);
-    }
     if (!exit_on_error)
       return;
   }
+
   if (len <= 0 && !got_int)
     read_error_exit();
-  if (len > 0)
-    did_read_something = TRUE;
+
   if (got_int) {
     /* Interrupted, pretend a CTRL-C was typed. */
     inbuf[0] = 3;
     inbufcount = 1;
-  } else   {
+  } else {
     /*
      * May perform conversion on the input characters.
      * Include the unconverted rest of the previous call.
@@ -558,7 +524,7 @@ void fill_input_buf(int exit_on_error)
        */
       if (inbuf[inbufcount] == 3 && ctrl_c_interrupts) {
         /* remove everything typed before the CTRL-C */
-        mch_memmove(inbuf, inbuf + inbufcount, (size_t)(len + 1));
+        memmove(inbuf, inbuf + inbufcount, (size_t)(len + 1));
         inbufcount = 0;
         got_int = TRUE;
       }
@@ -572,25 +538,24 @@ void fill_input_buf(int exit_on_error)
 /*
  * Exit because of an input read error.
  */
-void read_error_exit(void)          {
+void read_error_exit(void)
+{
   if (silent_mode)      /* Normal way to exit for "ex -s" */
     getout(0);
   STRCPY(IObuff, _("Vim: Error reading input, exiting...\n"));
   preserve_exit();
 }
 
-#if defined(CURSOR_SHAPE) || defined(PROTO)
 /*
  * May update the shape of the cursor.
  */
-void ui_cursor_shape(void)          {
+void ui_cursor_shape(void)
+{
   term_cursor_shape();
 
 
   conceal_check_cursur_line();
 }
-
-#endif
 
 #if defined(FEAT_CLIPBOARD) || defined(FEAT_GUI) || defined(FEAT_RIGHTLEFT) \
   || defined(FEAT_MBYTE) || defined(PROTO)
@@ -861,7 +826,7 @@ retnomove:
       did_drag |= count;
     }
     return IN_SEP_LINE;                         /* Cursor didn't move */
-  } else   { /* keep_window_focus must be TRUE */
+  } else { /* keep_window_focus must be TRUE */
           /* before moving the cursor for a left click, stop Visual mode */
     if (flags & MOUSE_MAY_STOP_VIS) {
       end_visual_mode();
@@ -1070,7 +1035,7 @@ win_T *mouse_find_win(int *rowp, int *colp)
           break;
         *colp -= fp->fr_width;
       }
-    } else   {  /* fr_layout == FR_COL */
+    } else {  /* fr_layout == FR_COL */
       for (fp = fp->fr_child; fp->fr_next != NULL; fp = fp->fr_next) {
         if (*rowp < fp->fr_height)
           break;

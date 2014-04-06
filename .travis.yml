@@ -1,5 +1,10 @@
 language: c
-script: ./scripts/travis.sh
+compiler:
+  - clang
+  - gcc
 before_install:
-  - sudo apt-get update
-  - sudo apt-get install valgrind
+  - sudo ./scripts/travis-setup.sh 
+script:
+  - ./scripts/travis.sh
+after_success:
+  - coveralls --encoding iso-8859-1

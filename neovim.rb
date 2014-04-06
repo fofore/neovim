@@ -10,7 +10,9 @@ class Neovim < Formula
   depends_on 'automake'
 
   def install
-    system "make", "PREFIX=#{prefix}", "cmake"
-    system "make", "PREFIX=#{prefix}"
+    ENV.deparallelize
+    system "make", "deps"
+    system "cmake", "-DCMAKE_BUILD_TYPE=Debug", "-DCMAKE_PREFIX_PATH=.deps/usr", "-DLibUV_USE_STATIC=YES", "-DCMAKE_INSTALL_PREFIX:PATH=#{prefix}"
+    system "make", "install"
   end
 end

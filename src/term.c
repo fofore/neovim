@@ -23,6 +23,8 @@
  */
 
 #define tgetstr tgetstr_defined_wrong
+#include <string.h>
+
 #include "vim.h"
 #include "term.h"
 #include "buffer.h"
@@ -35,6 +37,8 @@
 #include "message.h"
 #include "misc2.h"
 #include "garray.h"
+#include "keymap.h"
+#include "memory.h"
 #include "move.h"
 #include "normal.h"
 #include "option.h"
@@ -44,6 +48,8 @@
 #include "syntax.h"
 #include "ui.h"
 #include "window.h"
+#include "os/os.h"
+#include "os/time.h"
 
 #ifdef HAVE_TGETENT
 # ifdef HAVE_TERMIOS_H
@@ -85,32 +91,32 @@ struct builtin_term {
 /* start of keys that are not directly used by Vim but can be mapped */
 #define BT_EXTRA_KEYS   0x101
 
-static struct builtin_term *find_builtin_term __ARGS((char_u *name));
-static void parse_builtin_tcap __ARGS((char_u *s));
-static void term_color __ARGS((char_u *s, int n));
-static void gather_termleader __ARGS((void));
-static void req_codes_from_term __ARGS((void));
-static void req_more_codes_from_term __ARGS((void));
-static void got_code_from_term __ARGS((char_u *code, int len));
-static void check_for_codes_from_term __ARGS((void));
+static struct builtin_term *find_builtin_term(char_u *name);
+static void parse_builtin_tcap(char_u *s);
+static void term_color(char_u *s, int n);
+static void gather_termleader(void);
+static void req_codes_from_term(void);
+static void req_more_codes_from_term(void);
+static void got_code_from_term(char_u *code, int len);
+static void check_for_codes_from_term(void);
 #if defined(FEAT_GUI) \
   || (defined(FEAT_MOUSE) && (!defined(UNIX) || defined(FEAT_MOUSE_XTERM) \
   || defined(FEAT_MOUSE_GPM) || defined(FEAT_SYSMOUSE)))
-static int get_bytes_from_buf __ARGS((char_u *, char_u *, int));
+static int get_bytes_from_buf(char_u *, char_u *, int);
 #endif
-static void del_termcode_idx __ARGS((int idx));
-static int term_is_builtin __ARGS((char_u *name));
-static int term_7to8bit __ARGS((char_u *p));
-static void switch_to_8bit __ARGS((void));
+static void del_termcode_idx(int idx);
+static int term_is_builtin(char_u *name);
+static int term_7to8bit(char_u *p);
+static void switch_to_8bit(void);
 
 #ifdef HAVE_TGETENT
-static char_u *tgetent_error __ARGS((char_u *, char_u *));
+static char_u *tgetent_error(char_u *, char_u *);
 
 /*
  * Here is our own prototype for tgetstr(), any prototypes from the include
  * files have been disabled by the define at the start of this file.
  */
-char            *tgetstr __ARGS((char *, char **));
+char            *tgetstr(char *, char **);
 
 /* Change this to "if 1" to debug what happens with termresponse. */
 #   define LOG_TR(msg)
@@ -149,7 +155,7 @@ char *UP, *BC, PC;
 
 # define TGETSTR(s, p)  vim_tgetstr((s), (p))
 # define TGETENT(b, t)  tgetent((char *)(b), (char *)(t))
-static char_u *vim_tgetstr __ARGS((char *s, char_u **pp));
+static char_u *vim_tgetstr(char *s, char_u **pp);
 #endif /* HAVE_TGETENT */
 
 static int detected_8bit = FALSE;       /* detected 8-bit terminal */
@@ -374,7 +380,7 @@ static struct builtin_term builtin_termcaps[] =
   /*
    * These codes are valid when nansi.sys or equivalent has been installed.
    * Function keys on a PC are preceded with a NUL. These are converted into
-   * K_NUL '\316' in mch_inchar(), because we cannot handle NULs in key codes.
+   * K_NUL '\316' in os_inchar(), because we cannot handle NULs in key codes.
    * CTRL-arrow is used instead of SHIFT-arrow.
    */
   {(int)KS_NAME,      "pcansi"},
@@ -724,11 +730,6 @@ static struct builtin_term builtin_termcaps[] =
 #  endif
   {(int)KS_KS,        IF_EB("\033[?1h\033=", ESC_STR "[?1h" ESC_STR_nc "=")},
   {(int)KS_KE,        IF_EB("\033[?1l\033>", ESC_STR "[?1l" ESC_STR_nc ">")},
-#  ifdef FEAT_XTERM_SAVE
-  {(int)KS_TI,        IF_EB("\0337\033[?47h", ESC_STR "7" ESC_STR_nc "[?47h")},
-  {(int)KS_TE,        IF_EB("\033[2J\033[?47l\0338",
-       ESC_STR "[2J" ESC_STR_nc "[?47l" ESC_STR_nc "8")},
-#  endif
   {(int)KS_CIS,       IF_EB("\033]1;", ESC_STR "]1;")},
   {(int)KS_CIE,       "\007"},
   {(int)KS_TS,        IF_EB("\033]2;", ESC_STR "]2;")},
@@ -1225,7 +1226,7 @@ static void parse_builtin_tcap(char_u *term)
         } else
           term_strings[p->bt_entry] = (char_u *)p->bt_string;
       }
-    } else   {
+    } else {
       name[0] = KEY2TERMCAP0((int)p->bt_entry);
       name[1] = KEY2TERMCAP1((int)p->bt_entry);
       if (find_termcode(name) == NULL)
@@ -1233,7 +1234,7 @@ static void parse_builtin_tcap(char_u *term)
     }
   }
 }
-static void set_color_count __ARGS((int nr));
+static void set_color_count(int nr);
 
 /*
  * Set number of colors.
@@ -1963,7 +1964,7 @@ char_u *tltoa(unsigned long i)
  * minimal tgoto() implementation.
  * no padding and we only parse for %i %d and %+char
  */
-static char *tgoto __ARGS((char *, int, int));
+static char *tgoto(char *, int, int);
 
 static char *tgoto(char *cm, int x, int y)
 {
@@ -2020,7 +2021,7 @@ void termcapinit(char_u *name)
   term = name;
 
   if (term == NULL)
-    term = mch_getenv((char_u *)"TERM");
+    term = (char_u *)os_getenv("TERM");
   if (term == NULL || *term == NUL)
     term = DEFAULT_TERM;
   set_string_option_direct((char_u *)"term", -1, term, OPT_FREE, 0);
@@ -2030,7 +2031,7 @@ void termcapinit(char_u *name)
   set_string_default("ttytype", term);
 
   /*
-   * Avoid using "term" here, because the next mch_getenv() may overwrite it.
+   * Avoid using "term" here, because the next os_getenv() may overwrite it.
    */
   set_termname(T_NAME != NULL ? T_NAME : term);
 }
@@ -2046,7 +2047,8 @@ static int out_pos = 0;                 /* number of chars in out_buf */
 /*
  * out_flush(): flush the output buffer
  */
-void out_flush(void)          {
+void out_flush(void)
+{
   int len;
 
   if (out_pos != 0) {
@@ -2061,7 +2063,8 @@ void out_flush(void)          {
  * Sometimes a byte out of a multi-byte character is written with out_char().
  * To avoid flushing half of the character, call this function first.
  */
-void out_flush_check(void)          {
+void out_flush_check(void)
+{
   if (enc_dbcs != 0 && out_pos >= OUT_SIZE - MB_MAXBYTES)
     out_flush();
 }
@@ -2086,7 +2089,7 @@ void out_char(unsigned c)
     out_flush();
 }
 
-static void out_char_nf __ARGS((unsigned));
+static void out_char_nf(unsigned);
 
 /*
  * out_char_nf(c): like out_char(), but don't flush when p_wd is set
@@ -2363,7 +2366,7 @@ void add_long_to_buf(long_u val, char_u *dst)
   }
 }
 
-static int get_long_from_buf __ARGS((char_u *buf, long_u *val));
+static int get_long_from_buf(char_u *buf, long_u *val);
 
 /*
  * Interpret the next string of bytes in buf as a long integer, with the most
@@ -2434,7 +2437,8 @@ static int get_bytes_from_buf(char_u *buf, char_u *bytes, int num_bytes)
  * Check if the new shell size is valid, correct it if it's too small or way
  * too big.
  */
-void check_shellsize(void)          {
+void check_shellsize(void)
+{
   if (Rows < min_rows())        /* need room for one window and command line */
     Rows = min_rows();
   limit_screen_size();
@@ -2443,7 +2447,8 @@ void check_shellsize(void)          {
 /*
  * Limit Rows and Columns to avoid an overflow in Rows * Columns.
  */
-void limit_screen_size(void)          {
+void limit_screen_size(void)
+{
   if (Columns < MIN_COLUMNS)
     Columns = MIN_COLUMNS;
   else if (Columns > 10000)
@@ -2455,7 +2460,8 @@ void limit_screen_size(void)          {
 /*
  * Invoked just before the screen structures are going to be (re)allocated.
  */
-void win_new_shellsize(void)          {
+void win_new_shellsize(void)
+{
   static int old_Rows = 0;
   static int old_Columns = 0;
 
@@ -2478,7 +2484,8 @@ void win_new_shellsize(void)          {
  * Call this function when the Vim shell has been resized in any way.
  * Will obtain the current size and redraw (also when size didn't change).
  */
-void shell_resized(void)          {
+void shell_resized(void)
+{
   set_shellsize(0, 0, FALSE);
 }
 
@@ -2486,7 +2493,8 @@ void shell_resized(void)          {
  * Check if the shell size changed.  Handle a resize.
  * When the size didn't change, nothing happens.
  */
-void shell_resized_check(void)          {
+void shell_resized_check(void)
+{
   int old_Rows = Rows;
   int old_Columns = Columns;
 
@@ -2572,13 +2580,13 @@ void set_shellsize(int width, int height, int mustset)
         || exmode_active) {
       screenalloc(FALSE);
       repeat_message();
-    } else   {
+    } else {
       if (curwin->w_p_scb)
         do_check_scrollbind(TRUE);
       if (State & CMDLINE) {
         update_screen(NOT_VALID);
         redrawcmdline();
-      } else   {
+      } else {
         update_topline();
         if (pum_visible()) {
           redraw_later(NOT_VALID);
@@ -2634,7 +2642,8 @@ void settmode(int tmode)
   }
 }
 
-void starttermcap(void)          {
+void starttermcap(void)
+{
   if (full_screen && !termcap_active) {
     out_str(T_TI);                      /* start termcap mode */
     out_str(T_KS);                      /* start "keypad transmit" mode */
@@ -2651,7 +2660,8 @@ void starttermcap(void)          {
   }
 }
 
-void stoptermcap(void)          {
+void stoptermcap(void)
+{
   screen_stop_highlight();
   reset_cterm_colors();
   if (termcap_active) {
@@ -2660,7 +2670,7 @@ void stoptermcap(void)          {
       if (crv_status == CRV_SENT || u7_status == U7_SENT) {
 # ifdef UNIX
         /* Give the terminal a chance to respond. */
-        mch_delay(100L, FALSE);
+        os_delay(100L, FALSE);
 # endif
 # ifdef TCIFLUSH
         /* Discard data received but not read. */
@@ -2696,7 +2706,8 @@ void stoptermcap(void)          {
  * request to terminal while reading from a file).
  * The result is caught in check_termcode().
  */
-void may_req_termresponse(void)          {
+void may_req_termresponse(void)
+{
   if (crv_status == CRV_GET
       && cur_tmode == TMODE_RAW
       && starting == 0
@@ -2726,7 +2737,8 @@ void may_req_termresponse(void)          {
  * This function has the side effect that changes cursor position, so
  * it must be called immediately after entering termcap mode.
  */
-void may_req_ambiguous_char_width(void)          {
+void may_req_ambiguous_char_width(void)
+{
   if (u7_status == U7_GET
       && cur_tmode == TMODE_RAW
       && termcap_active
@@ -2781,14 +2793,16 @@ static void log_tr(char *msg)                 {
 /*
  * Return TRUE when saving and restoring the screen.
  */
-int swapping_screen(void)         {
+int swapping_screen(void)
+{
   return full_screen && *T_TI != NUL;
 }
 
 /*
  * setmouse() - switch mouse on/off depending on current mode and 'mouse'
  */
-void setmouse(void)          {
+void setmouse(void)
+{
   int checkfor;
 
 
@@ -2848,7 +2862,8 @@ int mouse_has(int c)
 /*
  * Return TRUE when 'mousemodel' is set to "popup" or "popup_setpos".
  */
-int mouse_model_popup(void)         {
+int mouse_model_popup(void)
+{
   return p_mousem[0] == 'p';
 }
 
@@ -2857,7 +2872,8 @@ int mouse_model_popup(void)         {
  * terminals this makes the screen scrolled to the correct position.
  * Used when starting Vim or returning from a shell.
  */
-void scroll_start(void)          {
+void scroll_start(void)
+{
   if (*T_VS != NUL) {
     out_str(T_VS);
     out_str(T_VE);
@@ -2870,7 +2886,8 @@ static int cursor_is_off = FALSE;
 /*
  * Enable the cursor.
  */
-void cursor_on(void)          {
+void cursor_on(void)
+{
   if (cursor_is_off) {
     out_str(T_VE);
     cursor_is_off = FALSE;
@@ -2880,7 +2897,8 @@ void cursor_on(void)          {
 /*
  * Disable the cursor.
  */
-void cursor_off(void)          {
+void cursor_off(void)
+{
   if (full_screen) {
     if (!cursor_is_off)
       out_str(T_VI);                /* disable cursor */
@@ -2888,11 +2906,11 @@ void cursor_off(void)          {
   }
 }
 
-#if defined(CURSOR_SHAPE) || defined(PROTO)
 /*
  * Set cursor shape to match Insert mode.
  */
-void term_cursor_shape(void)          {
+void term_cursor_shape(void)
+{
   static int showing_insert_mode = MAYBE;
 
   if (!full_screen || *T_CSI == NUL || *T_CEI == NUL)
@@ -2902,14 +2920,12 @@ void term_cursor_shape(void)          {
     if (showing_insert_mode != TRUE)
       out_str(T_CSI);               /* Insert mode cursor */
     showing_insert_mode = TRUE;
-  } else   {
+  } else {
     if (showing_insert_mode != FALSE)
       out_str(T_CEI);               /* non-Insert mode cursor */
     showing_insert_mode = FALSE;
   }
 }
-
-#endif
 
 /*
  * Set scrolling region for window 'wp'.
@@ -2930,7 +2946,8 @@ void scroll_region_set(win_T *wp, int off)
 /*
  * Reset scrolling region to the whole screen.
  */
-void scroll_region_reset(void)          {
+void scroll_region_reset(void)
+{
   OUT_STR(tgoto((char *)T_CS, (int)Rows - 1, 0));
   if (*T_CSV != NUL)
     OUT_STR(tgoto((char *)T_CSV, (int)Columns - 1, 0));
@@ -2951,9 +2968,10 @@ static struct termcode {
 static int tc_max_len = 0;  /* number of entries that termcodes[] can hold */
 static int tc_len = 0;      /* current number of entries in termcodes[] */
 
-static int termcode_star __ARGS((char_u *code, int len));
+static int termcode_star(char_u *code, int len);
 
-void clear_termcodes(void)          {
+void clear_termcodes(void)
+{
   while (tc_len > 0)
     vim_free(termcodes[--tc_len].code);
   vim_free(termcodes);
@@ -3048,7 +3066,7 @@ void add_termcode(char_u *name, char_u *string, int flags)
             vim_free(s);
             return;
           }
-        } else   {
+        } else {
           /* Replace old code. */
           vim_free(termcodes[i].code);
           --tc_len;
@@ -3143,7 +3161,8 @@ static void del_termcode_idx(int idx)
  * Called when detected that the terminal sends 8-bit codes.
  * Convert all 7-bit codes to their 8-bit equivalent.
  */
-static void switch_to_8bit(void)                 {
+static void switch_to_8bit(void)
+{
   int i;
   int c;
 
@@ -3257,7 +3276,7 @@ int check_termcode(int max_offset, char_u *buf, int bufsize, int *buflen)
         break;
       tp = typebuf.tb_buf + typebuf.tb_off + offset;
       len = typebuf.tb_len - offset;            /* length of the input */
-    } else   {
+    } else {
       if (offset >= *buflen)
         break;
       tp = buf + offset;
@@ -4098,7 +4117,7 @@ int check_termcode(int max_offset, char_u *buf, int bufsize, int *buflen)
       /* Do not put K_IGNORE into the buffer, do return KEYLEN_REMOVED
        * to indicate what happened. */
       retval = KEYLEN_REMOVED;
-    } else   {
+    } else {
       string[new_slen++] = K_SPECIAL;
       string[new_slen++] = key_name[0];
       string[new_slen++] = key_name[1];
@@ -4117,22 +4136,22 @@ int check_termcode(int max_offset, char_u *buf, int bufsize, int *buflen)
        * Careful: del_typebuf() and ins_typebuf() may have reallocated
        * typebuf.tb_buf[]!
        */
-      mch_memmove(typebuf.tb_buf + typebuf.tb_off + offset, string,
+      memmove(typebuf.tb_buf + typebuf.tb_off + offset, string,
           (size_t)new_slen);
-    } else   {
+    } else {
       if (extra < 0)
         /* remove matched characters */
-        mch_memmove(buf + offset, buf + offset - extra,
+        memmove(buf + offset, buf + offset - extra,
             (size_t)(*buflen + offset + extra));
       else if (extra > 0) {
         /* Insert the extra space we need.  If there is insufficient
          * space return -1. */
         if (*buflen + extra + new_slen >= bufsize)
           return -1;
-        mch_memmove(buf + offset + extra, buf + offset,
+        memmove(buf + offset + extra, buf + offset,
             (size_t)(*buflen - offset));
       }
-      mch_memmove(buf + offset, string, (size_t)new_slen);
+      memmove(buf + offset, string, (size_t)new_slen);
       *buflen = *buflen + extra + new_slen;
     }
     return retval == 0 ? (len + extra + offset) : retval;
@@ -4276,7 +4295,7 @@ replace_termcodes (
       } else if (STRNICMP(src, "<LocalLeader>", 13) == 0)   {
         len = 13;
         p = get_var_value((char_u *)"g:maplocalleader");
-      } else   {
+      } else {
         len = 0;
         p = NULL;
       }
@@ -4358,7 +4377,8 @@ int find_term_bykeys(char_u *src)
  * Gather the first characters in the terminal key codes into a string.
  * Used to speed up check_termcode().
  */
-static void gather_termleader(void)                 {
+static void gather_termleader(void)
+{
   int i;
   int len = 0;
 
@@ -4380,7 +4400,8 @@ static void gather_termleader(void)                 {
  * Show all termcodes (for ":set termcap")
  * This code looks a lot like showoptions(), but is different.
  */
-void show_termcodes(void)          {
+void show_termcodes(void)
+{
   int col;
   int         *items;
   int item_count;
@@ -4468,7 +4489,7 @@ int show_one_termcode(char_u *name, char_u *code, int printit)
     IObuff[1] = ' ';
     IObuff[2] = ' ';
     IObuff[3] = ' ';
-  } else   {
+  } else {
     IObuff[0] = 't';
     IObuff[1] = '_';
     IObuff[2] = name[0];
@@ -4509,13 +4530,15 @@ int show_one_termcode(char_u *name, char_u *code, int printit)
 static int xt_index_in = 0;
 static int xt_index_out = 0;
 
-static void req_codes_from_term(void)                 {
+static void req_codes_from_term(void)
+{
   xt_index_out = 0;
   xt_index_in = 0;
   req_more_codes_from_term();
 }
 
-static void req_more_codes_from_term(void)                 {
+static void req_more_codes_from_term(void)
+{
   char buf[11];
   int old_idx = xt_index_out;
 
@@ -4608,7 +4631,7 @@ static void got_code_from_term(char_u *code, int len)
           redraw_asap(CLEAR);
 #endif
         }
-      } else   {
+      } else {
         /* First delete any existing entry with the same code. */
         i = find_term_bykeys(str);
         if (i >= 0)
@@ -4629,7 +4652,8 @@ static void got_code_from_term(char_u *code, int len)
  * keyboard input.  We don't want responses to be send to that program or
  * handled as typed text.
  */
-static void check_for_codes_from_term(void)                 {
+static void check_for_codes_from_term(void)
+{
   int c;
 
   /* If no codes requested or all are answered, no need to wait. */
@@ -4688,9 +4712,7 @@ translate_mapping (
   int cpo_special;
   int cpo_keycode;
 
-  ga_init(&ga);
-  ga.ga_itemsize = 1;
-  ga.ga_growsize = 40;
+  ga_init(&ga, 1, 40);
 
   cpo_bslash = (vim_strchr(p_cpo, CPO_BSLASH) != NULL);
   cpo_special = (vim_strchr(p_cpo, CPO_SPECI) != NULL);

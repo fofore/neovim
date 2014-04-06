@@ -11,6 +11,8 @@
  * quickfix.c: functions for quickfix mode, using a file with error messages
  */
 
+#include <string.h>
+
 #include "vim.h"
 #include "quickfix.h"
 #include "buffer.h"
@@ -30,10 +32,12 @@
 #include "message.h"
 #include "misc1.h"
 #include "misc2.h"
+#include "memory.h"
 #include "move.h"
 #include "normal.h"
 #include "option.h"
 #include "os_unix.h"
+#include "path.h"
 #include "regexp.h"
 #include "screen.h"
 #include "search.h"
@@ -129,42 +133,42 @@ struct efm_S {
   int conthere;                 /* %> used */
 };
 
-static int qf_init_ext __ARGS((qf_info_T *qi, char_u *efile, buf_T *buf,
-                               typval_T *tv, char_u *errorformat, int newlist,
-                               linenr_T lnumfirst,
-                               linenr_T lnumlast,
-                               char_u *qf_title));
-static void qf_new_list __ARGS((qf_info_T *qi, char_u *qf_title));
-static void ll_free_all __ARGS((qf_info_T **pqi));
-static int qf_add_entry __ARGS((qf_info_T *qi, qfline_T **prevp, char_u *dir,
-                                char_u *fname, int bufnum, char_u *mesg,
-                                long lnum, int col, int vis_col,
-                                char_u *pattern, int nr, int type,
-                                int valid));
-static qf_info_T *ll_new_list __ARGS((void));
-static void qf_msg __ARGS((qf_info_T *qi));
-static void qf_free __ARGS((qf_info_T *qi, int idx));
-static char_u   *qf_types __ARGS((int, int));
-static int qf_get_fnum __ARGS((char_u *, char_u *));
-static char_u   *qf_push_dir __ARGS((char_u *, struct dir_stack_T **));
-static char_u   *qf_pop_dir __ARGS((struct dir_stack_T **));
-static char_u   *qf_guess_filepath __ARGS((char_u *));
-static void qf_fmt_text __ARGS((char_u *text, char_u *buf, int bufsize));
-static void qf_clean_dir_stack __ARGS((struct dir_stack_T **));
-static int qf_win_pos_update __ARGS((qf_info_T *qi, int old_qf_index));
-static int is_qf_win __ARGS((win_T *win, qf_info_T *qi));
-static win_T    *qf_find_win __ARGS((qf_info_T *qi));
-static buf_T    *qf_find_buf __ARGS((qf_info_T *qi));
-static void qf_update_buffer __ARGS((qf_info_T *qi));
-static void qf_set_title __ARGS((qf_info_T *qi));
-static void qf_fill_buffer __ARGS((qf_info_T *qi));
-static char_u   *get_mef_name __ARGS((void));
-static void restore_start_dir __ARGS((char_u *dirname_start));
-static buf_T    *load_dummy_buffer __ARGS((char_u *fname, char_u *dirname_start,
-                                           char_u *resulting_dir));
-static void wipe_dummy_buffer __ARGS((buf_T *buf, char_u *dirname_start));
-static void unload_dummy_buffer __ARGS((buf_T *buf, char_u *dirname_start));
-static qf_info_T *ll_get_or_alloc_list __ARGS((win_T *));
+static int qf_init_ext(qf_info_T *qi, char_u *efile, buf_T *buf,
+                       typval_T *tv, char_u *errorformat, int newlist,
+                       linenr_T lnumfirst,
+                       linenr_T lnumlast,
+                       char_u *qf_title);
+static void qf_new_list(qf_info_T *qi, char_u *qf_title);
+static void ll_free_all(qf_info_T **pqi);
+static int qf_add_entry(qf_info_T *qi, qfline_T **prevp, char_u *dir,
+                        char_u *fname, int bufnum, char_u *mesg,
+                        long lnum, int col, int vis_col,
+                        char_u *pattern, int nr, int type,
+                        int valid);
+static qf_info_T *ll_new_list(void);
+static void qf_msg(qf_info_T *qi);
+static void qf_free(qf_info_T *qi, int idx);
+static char_u   *qf_types(int, int);
+static int qf_get_fnum(char_u *, char_u *);
+static char_u   *qf_push_dir(char_u *, struct dir_stack_T **);
+static char_u   *qf_pop_dir(struct dir_stack_T **);
+static char_u   *qf_guess_filepath(char_u *);
+static void qf_fmt_text(char_u *text, char_u *buf, int bufsize);
+static void qf_clean_dir_stack(struct dir_stack_T **);
+static int qf_win_pos_update(qf_info_T *qi, int old_qf_index);
+static int is_qf_win(win_T *win, qf_info_T *qi);
+static win_T    *qf_find_win(qf_info_T *qi);
+static buf_T    *qf_find_buf(qf_info_T *qi);
+static void qf_update_buffer(qf_info_T *qi);
+static void qf_set_title(qf_info_T *qi);
+static void qf_fill_buffer(qf_info_T *qi);
+static char_u   *get_mef_name(void);
+static void restore_start_dir(char_u *dirname_start);
+static buf_T    *load_dummy_buffer(char_u *fname, char_u *dirname_start,
+                                           char_u *resulting_dir);
+static void wipe_dummy_buffer(buf_T *buf, char_u *dirname_start);
+static void unload_dummy_buffer(buf_T *buf, char_u *dirname_start);
+static qf_info_T *ll_get_or_alloc_list(win_T *);
 
 /* Quickfix window check helper macro */
 #define IS_QF_WINDOW(wp) (bt_quickfix(wp->w_buffer) && wp->w_llist_ref == NULL)
@@ -396,20 +400,20 @@ qf_init_ext (
                * follows should work. */
               STRCPY(ptr, ".\\{-1,}");
               ptr += 7;
-            } else   {
+            } else {
               /* File name followed by '\\' or '%': include as
                * many file name chars as possible. */
               STRCPY(ptr, "\\f\\+");
               ptr += 4;
             }
-          } else   {
+          } else {
             srcptr = (char_u *)fmt_pat[idx].pattern;
             while ((*ptr = *srcptr++) != NUL)
               ++ptr;
           }
           *ptr++ = '\\';
           *ptr++ = ')';
-        } else if (*efmp == '*')   {
+        } else if (*efmp == '*') {
           if (*++efmp == '[' || *efmp == '\\') {
             if ((*ptr++ = *efmp) == '[') {              /* %*[^a-z0-9] etc. */
               if (efmp[1] == '^')
@@ -428,7 +432,7 @@ qf_init_ext (
               *ptr++ = *++efmp;
             *ptr++ = '\\';
             *ptr++ = '+';
-          } else   {
+          } else {
             /* TODO: scanf()-like: %*ud, %*3c, %*f, ... ? */
             sprintf((char *)errmsg,
                 _("E375: Unsupported %%%c in format string"), *efmp);
@@ -452,13 +456,13 @@ qf_init_ext (
             EMSG(errmsg);
             goto error2;
           }
-        } else   {
+        } else {
           sprintf((char *)errmsg,
               _("E377: Invalid %%%c in format string"), *efmp);
           EMSG(errmsg);
           goto error2;
         }
-      } else   {                        /* copy normal character */
+      } else {                        /* copy normal character */
         if (*efmp == '\\' && efmp + 1 < efm + len)
           ++efmp;
         else if (vim_strchr((char_u *)".*^$~[", *efmp) != NULL)
@@ -524,7 +528,7 @@ qf_init_ext (
             vim_strncpy(IObuff, p_str, len);
 
           p_str += len;
-        } else if (tv->v_type == VAR_LIST)   {
+        } else if (tv->v_type == VAR_LIST) {
           /* Get the next line from the supplied list */
           while (p_li && p_li->li_tv.v_type != VAR_STRING)
             p_li = p_li->li_next;               /* Skip non-string items */
@@ -540,7 +544,7 @@ qf_init_ext (
 
           p_li = p_li->li_next;                 /* next item */
         }
-      } else   {
+      } else {
         /* Get the next line from the supplied buffer */
         if (buflnum > lnumlast)
           break;
@@ -615,7 +619,7 @@ restofline:
           *regmatch.endp[i] = c;
 
           if (vim_strchr((char_u *)"OPQ", idx) != NULL
-              && mch_getperm(namebuf) == -1)
+              && !os_file_exists(namebuf))
             continue;
         }
         if ((i = (int)fmt_ptr->addr[1]) > 0) {                  /* %n */
@@ -709,7 +713,7 @@ restofline:
       STRCPY(errmsg, IObuff);           /* copy whole line to error message */
       if (fmt_ptr == NULL)
         multiline = multiignore = FALSE;
-    } else if (fmt_ptr != NULL)   {
+    } else if (fmt_ptr != NULL) {
       /* honor %> item */
       if (fmt_ptr->conthere)
         fmt_start = fmt_ptr;
@@ -747,10 +751,10 @@ restofline:
           multiline = multiignore = FALSE;
         line_breakcheck();
         continue;
-      } else if (vim_strchr((char_u *)"OPQ", idx) != NULL)   {
+      } else if (vim_strchr((char_u *)"OPQ", idx) != NULL) {
         /* global file names */
         valid = FALSE;
-        if (*namebuf == NUL || mch_getperm(namebuf) >= 0) {
+        if (*namebuf == NUL || os_file_exists(namebuf)) {
           if (*namebuf && idx == 'P')
             currfile = qf_push_dir(namebuf, &file_stack);
           else if (idx == 'Q')
@@ -794,7 +798,7 @@ restofline:
         qi->qf_lists[qi->qf_curlist].qf_start;
       qi->qf_lists[qi->qf_curlist].qf_index = 1;
       qi->qf_lists[qi->qf_curlist].qf_nonevalid = TRUE;
-    } else   {
+    } else {
       qi->qf_lists[qi->qf_curlist].qf_nonevalid = FALSE;
       if (qi->qf_lists[qi->qf_curlist].qf_ptr == NULL)
         qi->qf_lists[qi->qf_curlist].qf_ptr =
@@ -857,7 +861,7 @@ static void qf_new_list(qf_info_T *qi, char_u *qf_title)
     qi->qf_curlist = LISTCOUNT - 1;
   } else
     qi->qf_curlist = qi->qf_listcount++;
-  vim_memset(&qi->qf_lists[qi->qf_curlist], 0, (size_t)(sizeof(qf_list_T)));
+  memset(&qi->qf_lists[qi->qf_curlist], 0, (size_t)(sizeof(qf_list_T)));
   if (qf_title != NULL) {
     char_u *p = alloc((int)STRLEN(qf_title) + 2);
 
@@ -957,7 +961,7 @@ qf_add_entry (
     /* first element in the list */
     qi->qf_lists[qi->qf_curlist].qf_start = qfp;
     qfp->qf_prev = qfp;         /* first element points to itself */
-  } else   {
+  } else {
     qfp->qf_prev = *prevp;
     (*prevp)->qf_next = qfp;
   }
@@ -978,12 +982,13 @@ qf_add_entry (
 /*
  * Allocate a new location list
  */
-static qf_info_T *ll_new_list(void)                        {
+static qf_info_T *ll_new_list(void)
+{
   qf_info_T *qi;
 
   qi = (qf_info_T *)alloc((unsigned)sizeof(qf_info_T));
   if (qi != NULL) {
-    vim_memset(qi, 0, (size_t)(sizeof(qf_info_T)));
+    memset(qi, 0, (size_t)(sizeof(qf_info_T)));
     qi->qf_refcount++;
   }
 
@@ -1131,7 +1136,7 @@ static int qf_get_fnum(char_u *directory, char_u *fname)
        * "leaving directory"-messages we might have missed a
        * directory change.
        */
-      if (mch_getperm(ptr) < 0) {
+      if (!os_file_exists(ptr)) {
         vim_free(ptr);
         directory = qf_guess_filepath(fname);
         if (directory)
@@ -1181,7 +1186,7 @@ static char_u *qf_push_dir(char_u *dirbuf, struct dir_stack_T **stackptr)
       vim_free((*stackptr)->dirname);
       (*stackptr)->dirname = concat_fnames(ds_new->dirname, dirbuf,
           TRUE);
-      if (mch_isdir((*stackptr)->dirname) == TRUE)
+      if (os_isdir((*stackptr)->dirname) == TRUE)
         break;
 
       ds_new = ds_new->next;
@@ -1289,7 +1294,7 @@ static char_u *qf_guess_filepath(char_u *filename)
     /* If concat_fnames failed, just go on. The worst thing that can happen
      * is that we delete the entire stack.
      */
-    if ((fullname != NULL) && (mch_getperm(fullname) >= 0))
+    if (fullname != NULL && os_file_exists(fullname))
       break;
 
     ds_ptr = ds_ptr->next;
@@ -1385,7 +1390,7 @@ void qf_jump(qf_info_T *qi, int dir, int errornr, int forceit)
                || (dir == FORWARD_FILE && qf_ptr->qf_fnum == old_qf_fnum));
       err = NULL;
     }
-  } else if (dir == BACKWARD || dir == BACKWARD_FILE)   { /* prev. valid entry */
+  } else if (dir == BACKWARD || dir == BACKWARD_FILE) { /* prev. valid entry */
     while (errornr--) {
       old_qf_ptr = qf_ptr;
       prev_index = qf_index;
@@ -1408,7 +1413,7 @@ void qf_jump(qf_info_T *qi, int dir, int errornr, int forceit)
                || (dir == BACKWARD_FILE && qf_ptr->qf_fnum == old_qf_fnum));
       err = NULL;
     }
-  } else if (errornr != 0)   {  /* go to specified number */
+  } else if (errornr != 0) {  /* go to specified number */
     while (errornr < qf_index && qf_index > 1 && qf_ptr->qf_prev != NULL) {
       --qf_index;
       qf_ptr = qf_ptr->qf_prev;
@@ -1547,7 +1552,7 @@ win_found:
         curwin->w_llist = ll_ref;
         ll_ref->qf_refcount++;
       }
-    } else   {
+    } else {
       if (curwin->w_llist_ref != NULL) {
         /* In a location window */
         win = usable_win_ptr;
@@ -1577,7 +1582,7 @@ win_found:
           win->w_llist = ll_ref;
           ll_ref->qf_refcount++;
         }
-      } else   {
+      } else {
 
         /*
          * Try to find a window that shows the right buffer.
@@ -1678,7 +1683,7 @@ win_found:
         check_cursor();
       } else
         beginline(BL_WHITE | BL_FIX);
-    } else   {
+    } else {
       pos_T save_cursor;
 
       /* Move the cursor to the first line in the buffer */
@@ -1715,7 +1720,7 @@ win_found:
       msg_attr_keep(IObuff, 0, TRUE);
       msg_scroll = i;
     }
-  } else   {
+  } else {
     if (opened_window)
       win_close(curwin, TRUE);          /* Close opened window */
     if (qf_ptr->qf_fnum != 0) {
@@ -1796,7 +1801,7 @@ void qf_list(exarg_T *eap)
           && (buf = buflist_findnr(qfp->qf_fnum)) != NULL) {
         fname = buf->b_fname;
         if (qfp->qf_type == 1)          /* :helpgrep */
-          fname = gettail(fname);
+          fname = path_tail(fname);
       }
       if (fname == NULL)
         sprintf((char *)IObuff, "%2d", i);
@@ -1889,7 +1894,7 @@ void qf_age(exarg_T *eap)
         break;
       }
       --qi->qf_curlist;
-    } else   {
+    } else {
       if (qi->qf_curlist >= qi->qf_listcount - 1) {
         EMSG(_("E381: At top of quickfix stack"));
         break;
@@ -2212,7 +2217,7 @@ qf_win_pos_update (
     if (qf_index > old_qf_index) {
       curwin->w_redraw_top = old_qf_index;
       curwin->w_redraw_bot = qf_index;
-    } else   {
+    } else {
       curwin->w_redraw_top = qf_index;
       curwin->w_redraw_bot = old_qf_index;
     }
@@ -2343,7 +2348,7 @@ static void qf_fill_buffer(qf_info_T *qi)
           && (errbuf = buflist_findnr(qfp->qf_fnum)) != NULL
           && errbuf->b_fname != NULL) {
         if (qfp->qf_type == 1)          /* :helpgrep */
-          STRCPY(IObuff, gettail(errbuf->b_fname));
+          STRCPY(IObuff, path_tail(errbuf->b_fname));
         else
           STRCPY(IObuff, errbuf->b_fname);
         len = (int)STRLEN(IObuff);
@@ -2363,7 +2368,7 @@ static void qf_fill_buffer(qf_info_T *qi)
         sprintf((char *)IObuff + len, "%s",
             (char *)qf_types(qfp->qf_type, qfp->qf_nr));
         len += (int)STRLEN(IObuff + len);
-      } else if (qfp->qf_pattern != NULL)   {
+      } else if (qfp->qf_pattern != NULL) {
         qf_fmt_text(qfp->qf_pattern, IObuff + len, IOSIZE - len);
         len += (int)STRLEN(IObuff + len);
       }
@@ -2542,7 +2547,7 @@ void ex_make(exarg_T *eap)
   msg_outtrans(cmd);            /* show what we are doing */
 
   /* let the shell know if we are redirecting output or not */
-  do_shell(cmd, *p_sp != NUL ? SHELL_DOOUT : 0);
+  do_shell(cmd, *p_sp != NUL ? kShellOptDoOut : 0);
 
 
   res = qf_init(wp, fname, (eap->cmdidx != CMD_make
@@ -2573,7 +2578,8 @@ void ex_make(exarg_T *eap)
  * Find a new unique name when 'makeef' contains "##".
  * Returns NULL for error.
  */
-static char_u *get_mef_name(void)                     {
+static char_u *get_mef_name(void)
+{
   char_u      *p;
   char_u      *name;
   static int start = -1;
@@ -2599,7 +2605,7 @@ static char_u *get_mef_name(void)                     {
   /* Keep trying until the name doesn't exist yet. */
   for (;; ) {
     if (start == -1)
-      start = mch_get_pid();
+      start = os_get_pid();
     else
       off += 19;
 
@@ -2609,7 +2615,7 @@ static char_u *get_mef_name(void)                     {
     STRCPY(name, p_mef);
     sprintf((char *)name + (p - p_mef), "%d%d", start, off);
     STRCAT(name, p + 2);
-    if (mch_getperm(name) < 0
+    if (!os_file_exists(name)
 #ifdef HAVE_LSTAT
         /* Don't accept a symbolic link, its a security risk. */
         && mch_lstat((char *)name, &sb) < 0
@@ -2732,7 +2738,7 @@ void ex_cfile(exarg_T *eap)
     if (wp != NULL)
       qi = GET_LOC_LIST(wp);
     qf_jump(qi, 0, 0, eap->forceit);            /* display first error */
-  } else   {
+  } else {
     if (au_name != NULL)
       apply_autocmds(EVENT_QUICKFIXCMDPOST, au_name, NULL, FALSE, curbuf);
   }
@@ -2862,7 +2868,7 @@ void ex_vimgrep(exarg_T *eap)
 
   /* Remember the current directory, because a BufRead autocommand that does
    * ":lcd %:p:h" changes the meaning of short path names. */
-  mch_dirname(dirname_start, MAXPATHL);
+  os_dirname(dirname_start, MAXPATHL);
 
   /* Remember the value of qf_start, so that we can check for autocommands
    * changing the current quickfix list. */
@@ -2934,7 +2940,7 @@ void ex_vimgrep(exarg_T *eap)
     if (buf == NULL) {
       if (!got_int)
         smsg((char_u *)_("Cannot open file \"%s\""), fname);
-    } else   {
+    } else {
       /* Try for a match in all lines of the buffer.
        * For ":1vimgrep" look for first match only. */
       found_match = FALSE;
@@ -2999,7 +3005,7 @@ void ex_vimgrep(exarg_T *eap)
           if (!found_match) {
             wipe_dummy_buffer(buf, dirname_start);
             buf = NULL;
-          } else if (buf != first_match_buf || (flags & VGR_NOJUMP))   {
+          } else if (buf != first_match_buf || (flags & VGR_NOJUMP)) {
             unload_dummy_buffer(buf, dirname_start);
             buf = NULL;
           }
@@ -3092,7 +3098,7 @@ char_u *skip_vimgrep_pat(char_u *p, char_u **s, int *flags)
     p = skiptowhite(p);
     if (s != NULL && *p != NUL)
       *p++ = NUL;
-  } else   {
+  } else {
     /* ":vimgrep /pattern/[g][j] fname" */
     if (s != NULL)
       *s = p + 1;
@@ -3129,7 +3135,7 @@ static void restore_start_dir(char_u *dirname_start)
   char_u *dirname_now = alloc(MAXPATHL);
 
   if (NULL != dirname_now) {
-    mch_dirname(dirname_now, MAXPATHL);
+    os_dirname(dirname_now, MAXPATHL);
     if (STRCMP(dirname_start, dirname_now) != 0) {
       /* If the directory has changed, change it back by building up an
        * appropriate ex command and executing it. */
@@ -3217,7 +3223,7 @@ load_dummy_buffer (
    * Let the caller know what the resulting dir was first, in case it is
    * important.
    */
-  mch_dirname(resulting_dir, MAXPATHL);
+  os_dirname(resulting_dir, MAXPATHL);
   restore_start_dir(dirname_start);
 
   if (!buf_valid(newbuf))

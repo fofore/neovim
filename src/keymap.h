@@ -6,6 +6,9 @@
  * Do ":help credits" in Vim to see a list of people who contributed.
  */
 
+#ifndef NEOVIM_KEYMAP_H
+#define NEOVIM_KEYMAP_H
+
 /*
  * Keycode definitions for special keys.
  *
@@ -212,8 +215,6 @@ enum key_extra {
 
   , KE_TAB              /* unshifted TAB key */
   , KE_S_TAB_OLD        /* shifted TAB key (no longer used) */
-
-  , KE_SNIFF            /* SNiFF+ input waiting */
 
   , KE_XF1              /* extra vt100 function keys for xterm */
   , KE_XF2
@@ -451,8 +452,6 @@ enum key_extra {
 #define K_IGNORE        TERMCAP2KEY(KS_EXTRA, KE_IGNORE)
 #define K_NOP           TERMCAP2KEY(KS_EXTRA, KE_NOP)
 
-#define K_SNIFF         TERMCAP2KEY(KS_EXTRA, KE_SNIFF)
-
 #define K_MOUSEDOWN     TERMCAP2KEY(KS_EXTRA, KE_MOUSEDOWN)
 #define K_MOUSEUP       TERMCAP2KEY(KS_EXTRA, KE_MOUSEUP)
 #define K_MOUSELEFT     TERMCAP2KEY(KS_EXTRA, KE_MOUSELEFT)
@@ -497,3 +496,19 @@ enum key_extra {
  * This is a total of 6 tokens, and is currently the longest one possible.
  */
 #define MAX_KEY_CODE_LEN    6
+
+int name_to_mod_mask(int c);
+int simplify_key(int key, int *modifiers);
+int handle_x_keys(int key);
+char_u *get_special_key_name(int c, int modifiers);
+int trans_special(char_u **srcp, char_u *dst, int keycode);
+int find_special_key(char_u **srcp, int *modp, int keycode,
+                     int keep_x_key);
+int extract_modifiers(int key, int *modp);
+int find_special_key_in_table(int c);
+int get_special_key_code(char_u *name);
+char_u *get_key_name(int i);
+int get_mouse_button(int code, int *is_click, int *is_drag);
+int get_pseudo_mouse_code(int button, int is_click, int is_drag);
+
+#endif /* NEOVIM_KEYMAP_H */

@@ -8,6 +8,8 @@
  */
 
 #define EXTERN
+#include <string.h>
+
 #include "vim.h"
 #include "main.h"
 #include "blowfish.h"
@@ -29,12 +31,15 @@
 #include "message.h"
 #include "misc1.h"
 #include "misc2.h"
+#include "crypt.h"
 #include "garray.h"
+#include "memory.h"
 #include "move.h"
 #include "normal.h"
 #include "ops.h"
 #include "option.h"
 #include "os_unix.h"
+#include "path.h"
 #include "quickfix.h"
 #include "screen.h"
 #include "syntax.h"
@@ -42,6 +47,8 @@
 #include "ui.h"
 #include "version.h"
 #include "window.h"
+#include "os/os.h"
+#include "os/signal.h"
 
 /* Maximum number of commands from + or -c arguments. */
 #define MAX_ARG_CMDS 10
@@ -92,39 +99,39 @@ typedef struct {
 #define EDIT_QF     4       /* start in quickfix mode */
 
 #if (defined(UNIX) || defined(VMS)) && !defined(NO_VIM_MAIN)
-static int file_owned __ARGS((char *fname));
+static int file_owned(char *fname);
 #endif
-static void mainerr __ARGS((int, char_u *));
+static void mainerr(int, char_u *);
 #ifndef NO_VIM_MAIN
-static void main_msg __ARGS((char *s));
-static void usage __ARGS((void));
-static int get_number_arg __ARGS((char_u *p, int *idx, int def));
+static void main_msg(char *s);
+static void usage(void);
+static int get_number_arg(char_u *p, int *idx, int def);
 # if defined(HAVE_LOCALE_H) || defined(X_LOCALE)
-static void init_locale __ARGS((void));
+static void init_locale(void);
 # endif
-static void parse_command_name __ARGS((mparm_T *parmp));
-static bool parse_char_i __ARGS((char_u **input, char val));
-static bool parse_string __ARGS((char_u **input, char* val, int len));
-static void command_line_scan __ARGS((mparm_T *parmp));
-static void init_params __ARGS((mparm_T *parmp, int argc, char **argv));
-static void init_startuptime __ARGS((mparm_T *parmp));
-static void allocate_generic_buffers __ARGS((void));
-static void check_and_set_isatty __ARGS((mparm_T *parmp));
-static char_u* get_fname __ARGS((mparm_T *parmp));
-static void set_window_layout __ARGS((mparm_T *parmp));
-static void load_plugins __ARGS((void));
-static void handle_quickfix __ARGS((mparm_T *parmp));
-static void handle_tag __ARGS((char_u *tagname));
-static void check_tty __ARGS((mparm_T *parmp));
-static void read_stdin __ARGS((void));
-static void create_windows __ARGS((mparm_T *parmp));
-static void edit_buffers __ARGS((mparm_T *parmp));
-static void exe_pre_commands __ARGS((mparm_T *parmp));
-static void exe_commands __ARGS((mparm_T *parmp));
-static void source_startup_scripts __ARGS((mparm_T *parmp));
-static void main_start_gui __ARGS((void));
+static void parse_command_name(mparm_T *parmp);
+static bool parse_char_i(char_u **input, char val);
+static bool parse_string(char_u **input, char* val, int len);
+static void command_line_scan(mparm_T *parmp);
+static void init_params(mparm_T *parmp, int argc, char **argv);
+static void init_startuptime(mparm_T *parmp);
+static void allocate_generic_buffers(void);
+static void check_and_set_isatty(mparm_T *parmp);
+static char_u* get_fname(mparm_T *parmp);
+static void set_window_layout(mparm_T *parmp);
+static void load_plugins(void);
+static void handle_quickfix(mparm_T *parmp);
+static void handle_tag(char_u *tagname);
+static void check_tty(mparm_T *parmp);
+static void read_stdin(void);
+static void create_windows(mparm_T *parmp);
+static void edit_buffers(mparm_T *parmp);
+static void exe_pre_commands(mparm_T *parmp);
+static void exe_commands(mparm_T *parmp);
+static void source_startup_scripts(mparm_T *parmp);
+static void main_start_gui(void);
 # if defined(HAS_SWAP_EXISTS_ACTION)
-static void check_swap_exists_action __ARGS((void));
+static void check_swap_exists_action(void);
 # endif
 #endif /* NO_VIM_MAIN */
 
@@ -164,10 +171,6 @@ static char *(main_errors[]) =
    * functions without a lot of arguments.  "argc" and "argv" are also
    * copied, so that they can be changed. */
   init_params(&params, argc, argv);
-
-#ifdef MEM_PROFILE
-  atexit(vim_mem_profile_dump);
-#endif
 
   init_startuptime(&params);
 
@@ -323,12 +326,6 @@ static char *(main_errors[]) =
   /* Set the break level after the terminal is initialized. */
   debug_break_level = params.use_debug_break_level;
 
-#endif /* NO_VIM_MAIN */
-
-  /* vim_main2() needs to be produced when FEAT_MZSCHEME is defined even when
-   * NO_VIM_MAIN is defined. */
-
-#ifndef NO_VIM_MAIN
   /* Execute --cmd arguments. */
   exe_pre_commands(&params);
 
@@ -614,7 +611,7 @@ main_loop (
          * used and keep "got_int" set, so that it aborts ":g". */
         exmode_active = EXMODE_NORMAL;
         State = NORMAL;
-      } else if (!global_busy || !exmode_active)   {
+      } else if (!global_busy || !exmode_active) {
         if (!quit_more)
           (void)vgetc();                        /* flush all buffers */
         got_int = FALSE;
@@ -833,7 +830,7 @@ void getout(int exitval)
     apply_autocmds(EVENT_VIMLEAVEPRE, NULL, NULL, FALSE, curbuf);
   }
 
-  if (*p_viminfo != NUL)
+  if (p_viminfo && *p_viminfo != NUL)
     /* Write out the registers, history, marks etc, to the viminfo file */
     write_viminfo(NULL, FALSE);
 
@@ -885,7 +882,8 @@ get_number_arg (
 /*
  * Setup to use the current locale (for ctype() and many other things).
  */
-static void init_locale(void)                 {
+static void init_locale(void)
+{
   setlocale(LC_ALL, "");
 
 # if defined(FEAT_FLOAT) && defined(LC_NUMERIC)
@@ -928,12 +926,12 @@ static void parse_command_name(mparm_T *parmp)
 {
   char_u      *initstr;
 
-  initstr = gettail((char_u *)parmp->argv[0]);
+  initstr = path_tail((char_u *)parmp->argv[0]);
 
 
   set_vim_var_string(VV_PROGNAME, initstr, -1);
 
-  if (STRNICMP(initstr, "editor", 6) == 0)
+  if (parse_string(&initstr, "editor", 6))
     return;
 
   if (parse_char_i(&initstr, 'r'))
@@ -1054,20 +1052,20 @@ static void command_line_scan(mparm_T *parmp)
             msg_putchar('\n');
             msg_didout = FALSE;
             mch_exit(0);
-          } else if (STRNICMP(argv[0] + argv_idx, "literal", 7) == 0)   {
+          } else if (STRNICMP(argv[0] + argv_idx, "literal", 7) == 0) {
 #if (!defined(UNIX) && !defined(__EMX__)) || defined(ARCHIE)
             parmp->literal = TRUE;
 #endif
-          } else if (STRNICMP(argv[0] + argv_idx, "nofork", 6) == 0)   {
+          } else if (STRNICMP(argv[0] + argv_idx, "nofork", 6) == 0) {
           } else if (STRNICMP(argv[0] + argv_idx, "noplugin", 8) == 0)
             p_lpl = FALSE;
           else if (STRNICMP(argv[0] + argv_idx, "cmd", 3) == 0) {
             want_argument = TRUE;
             argv_idx += 3;
-          } else if (STRNICMP(argv[0] + argv_idx, "startuptime", 11) == 0)   {
+          } else if (STRNICMP(argv[0] + argv_idx, "startuptime", 11) == 0) {
             want_argument = TRUE;
             argv_idx += 11;
-          } else   {
+          } else {
             if (argv[0][argv_idx])
               mainerr(ME_UNKNOWN_OPTION, (char_u *)argv[0]);
             had_minmin = TRUE;
@@ -1433,11 +1431,11 @@ scripterror:
       if (ga_grow(&global_alist.al_ga, 1) == FAIL
           || (p = vim_strsave((char_u *)argv[0])) == NULL)
         mch_exit(2);
-      if (parmp->diff_mode && mch_isdir(p) && GARGCOUNT > 0
-          && !mch_isdir(alist_name(&GARGLIST[0]))) {
+      if (parmp->diff_mode && os_isdir(p) && GARGCOUNT > 0
+          && !os_isdir(alist_name(&GARGLIST[0]))) {
         char_u      *r;
 
-        r = concat_fnames(p, gettail(alist_name(&GARGLIST[0])), TRUE);
+        r = concat_fnames(p, path_tail(alist_name(&GARGLIST[0])), TRUE);
         if (r != NULL) {
           vim_free(p);
           p = r;
@@ -1490,7 +1488,7 @@ scripterror:
  * copied, so that they can be changed. */
 static void init_params(mparm_T *paramp, int argc, char **argv)
 {
-  vim_memset(paramp, 0, sizeof(*paramp));
+  memset(paramp, 0, sizeof(*paramp));
   paramp->argc = argc;
   paramp->argv = argv;
   paramp->want_full_screen = TRUE;
@@ -1656,7 +1654,8 @@ static void check_tty(mparm_T *parmp)
 /*
  * Read text from stdin.
  */
-static void read_stdin(void)                 {
+static void read_stdin(void)
+{
   int i;
 
 #if defined(HAS_SWAP_EXISTS_ACTION)
@@ -1706,7 +1705,7 @@ static void create_windows(mparm_T *parmp)
     if (parmp->window_layout == WIN_TABS) {
       parmp->window_count = make_tabpages(parmp->window_count);
       TIME_MSG("making tab pages");
-    } else if (firstwin->w_next == NULL)   {
+    } else if (firstwin->w_next == NULL) {
       parmp->window_count = make_windows(parmp->window_count,
           parmp->window_layout == WIN_VER);
       TIME_MSG("making windows");
@@ -1721,7 +1720,7 @@ static void create_windows(mparm_T *parmp)
     if (curbuf->b_ml.ml_mfp == NULL)     /* failed */
       getout(1);
     do_modelines(0);                    /* do modelines */
-  } else   {
+  } else {
     /*
      * Open a buffer for windows that don't have one yet.
      * Commands in the .vimrc might have loaded a file or split the window.
@@ -1739,11 +1738,11 @@ static void create_windows(mparm_T *parmp)
           goto_tabpage(1);
         else
           curwin = firstwin;
-      } else if (parmp->window_layout == WIN_TABS)   {
+      } else if (parmp->window_layout == WIN_TABS) {
         if (curtab->tp_next == NULL)
           break;
         goto_tabpage(0);
-      } else   {
+      } else {
         if (curwin->w_next == NULL)
           break;
         curwin = curwin->w_next;
@@ -1835,7 +1834,7 @@ static void edit_buffers(mparm_T *parmp)
         if (curtab->tp_next == NULL)            /* just checking */
           break;
         goto_tabpage(0);
-      } else   {
+      } else {
         if (curwin->w_next == NULL)             /* just checking */
           break;
         win_enter(curwin->w_next, FALSE);
@@ -1982,11 +1981,11 @@ static void source_startup_scripts(mparm_T *parmp)
         || STRCMP(parmp->use_vimrc, "NORC") == 0) {
       if (parmp->use_vimrc[2] == 'N')
         p_lpl = FALSE;                      /* don't load plugins either */
-    } else   {
+    } else {
       if (do_source(parmp->use_vimrc, FALSE, DOSO_NONE) != OK)
         EMSG2(_("E282: Cannot read from \"%s\""), parmp->use_vimrc);
     }
-  } else if (!silent_mode)   {
+  } else if (!silent_mode) {
 
     /*
      * Get system wide defaults, if the file name is defined.
@@ -2044,19 +2043,19 @@ static void source_startup_scripts(mparm_T *parmp)
         secure = p_secure;
 
       i = FAIL;
-      if (fullpathcmp((char_u *)USR_VIMRC_FILE,
-            (char_u *)VIMRC_FILE, FALSE) != FPC_SAME
+      if (path_full_compare((char_u *)USR_VIMRC_FILE,
+            (char_u *)VIMRC_FILE, FALSE) != kEqualFiles
 #ifdef USR_VIMRC_FILE2
-          && fullpathcmp((char_u *)USR_VIMRC_FILE2,
-            (char_u *)VIMRC_FILE, FALSE) != FPC_SAME
+          && path_full_compare((char_u *)USR_VIMRC_FILE2,
+            (char_u *)VIMRC_FILE, FALSE) != kEqualFiles
 #endif
 #ifdef USR_VIMRC_FILE3
-          && fullpathcmp((char_u *)USR_VIMRC_FILE3,
-            (char_u *)VIMRC_FILE, FALSE) != FPC_SAME
+          && path_full_compare((char_u *)USR_VIMRC_FILE3,
+            (char_u *)VIMRC_FILE, FALSE) != kEqualFiles
 #endif
 #ifdef SYS_VIMRC_FILE
-          && fullpathcmp((char_u *)SYS_VIMRC_FILE,
-            (char_u *)VIMRC_FILE, FALSE) != FPC_SAME
+          && path_full_compare((char_u *)SYS_VIMRC_FILE,
+            (char_u *)VIMRC_FILE, FALSE) != kEqualFiles
 #endif
          )
         i = do_source((char_u *)VIMRC_FILE, TRUE, DOSO_VIMRC);
@@ -2069,11 +2068,11 @@ static void source_startup_scripts(mparm_T *parmp)
         else
           secure = 0;
 #endif
-        if (       fullpathcmp((char_u *)USR_EXRC_FILE,
-              (char_u *)EXRC_FILE, FALSE) != FPC_SAME
+        if (       path_full_compare((char_u *)USR_EXRC_FILE,
+              (char_u *)EXRC_FILE, FALSE) != kEqualFiles
 #ifdef USR_EXRC_FILE2
-            && fullpathcmp((char_u *)USR_EXRC_FILE2,
-              (char_u *)EXRC_FILE, FALSE) != FPC_SAME
+            && path_full_compare((char_u *)USR_EXRC_FILE2,
+              (char_u *)EXRC_FILE, FALSE) != kEqualFiles
 #endif
            )
           (void)do_source((char_u *)EXRC_FILE, FALSE, DOSO_NONE);
@@ -2089,7 +2088,8 @@ static void source_startup_scripts(mparm_T *parmp)
 /*
  * Setup to start using the GUI.  Exit with an error when not available.
  */
-static void main_start_gui(void)                 {
+static void main_start_gui(void)
+{
   mch_errmsg(_(e_nogvim));
   mch_errmsg("\n");
   mch_exit(2);
@@ -2112,7 +2112,8 @@ process_env (
   linenr_T save_sourcing_lnum;
   scid_T save_sid;
 
-  if ((initstr = mch_getenv(env)) != NULL && *initstr != NUL) {
+  initstr = (char_u *)os_getenv((char *)env);
+  if (initstr != NULL && *initstr != NUL) {
     if (is_viminit)
       vimrc_found(NULL, NULL);
     save_sourcing_name = sourcing_name;
@@ -2162,9 +2163,7 @@ mainerr (
     char_u *str       /* extra argument or NULL */
 )
 {
-#if defined(UNIX) || defined(__EMX__) || defined(VMS)
-  reset_signals();              /* kill us with CTRL-C here, if you like */
-#endif
+  signal_stop();              /* kill us with CTRL-C here, if you like */
 
   mch_errmsg(longVersion);
   mch_errmsg("\n");
@@ -2198,7 +2197,8 @@ static void main_msg(char *s)
 /*
  * Print messages for "vim -h" or "vim --help" and exit.
  */
-static void usage(void)                 {
+static void usage(void)
+{
   int i;
   static char *(use[]) =
   {
@@ -2208,9 +2208,7 @@ static void usage(void)                 {
     N_("-q [errorfile]  edit file with first error")
   };
 
-#if defined(UNIX) || defined(__EMX__) || defined(VMS)
-  reset_signals();              /* kill us with CTRL-C here, if you like */
-#endif
+  signal_stop();              /* kill us with CTRL-C here, if you like */
 
   mch_msg(longVersion);
   mch_msg(_("\n\nusage:"));
@@ -2226,10 +2224,6 @@ static void usage(void)                 {
   main_msg(_("--\t\t\tOnly file names after this"));
 #if (!defined(UNIX) && !defined(__EMX__)) || defined(ARCHIE)
   main_msg(_("--literal\t\tDon't expand wildcards"));
-#endif
-#ifdef FEAT_OLE
-  main_msg(_("-register\t\tRegister this gvim for OLE"));
-  main_msg(_("-unregister\t\tUnregister gvim for OLE"));
 #endif
   main_msg(_("-v\t\t\tVi mode (like \"vi\")"));
   main_msg(_("-e\t\t\tEx mode (like \"ex\")"));
@@ -2287,7 +2281,8 @@ static void usage(void)                 {
  * When "Quit" selected, exit Vim.
  * When "Recover" selected, recover the file.
  */
-static void check_swap_exists_action(void)                 {
+static void check_swap_exists_action(void)
+{
   if (swap_exists_action == SEA_QUIT)
     getout(1);
   handle_swap_exists(NULL);
@@ -2298,7 +2293,7 @@ static void check_swap_exists_action(void)                 {
 #endif
 
 #if defined(STARTUPTIME) || defined(PROTO)
-static void time_diff __ARGS((struct timeval *then, struct timeval *now));
+static void time_diff(struct timeval *then, struct timeval *now);
 
 static struct timeval prev_timeval;
 
@@ -2384,15 +2379,3 @@ time_msg (
 }
 
 #endif
-
-
-
-/*
- * When FEAT_FKMAP is defined, also compile the Farsi source code.
- */
-# include "farsi.c"
-
-/*
- * When FEAT_ARABIC is defined, also compile the Arabic source code.
- */
-# include "arabic.c"
